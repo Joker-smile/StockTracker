@@ -99,8 +99,8 @@ namespace StockTracker
                 Cursor = Cursors.Hand
             };
             _btnMin.Click += (s, e) => {
-                this.ShowInTaskbar = true;
                 this.WindowState = FormWindowState.Minimized;
+                this.ShowInTaskbar = true;
             };
             _btnMin.MouseEnter += (s, e) => _btnMin.ForeColor = Color.White;
             _btnMin.MouseLeave += (s, e) => _btnMin.ForeColor = Color.Gray;
@@ -140,7 +140,7 @@ namespace StockTracker
 
         private void Form1_Resize(object? sender, EventArgs e)
         {
-            if (this.WindowState == FormWindowState.Normal)
+            if (this.WindowState == FormWindowState.Normal && this.ShowInTaskbar)
             {
                 this.ShowInTaskbar = false;
             }
