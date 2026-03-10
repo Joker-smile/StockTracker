@@ -237,6 +237,7 @@ namespace StockTracker
                 else
                 {
                     string klineUrl = $"https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData?symbol={fullCode}&scale=240&ma=no&datalen=5";
+                    if (_httpClient == null) return "系统忙";
                     string jsonStr = await _httpClient.GetStringAsync(klineUrl);
                     
                     if (!string.IsNullOrWhiteSpace(jsonStr) && jsonStr != "null")
@@ -389,6 +390,7 @@ namespace StockTracker
                 }
 
                 string url = $"http://hq.sinajs.cn/list={string.Join(",", prefixedCodes)}";
+                if (_httpClient == null) return;
                 var bytes = await _httpClient.GetByteArrayAsync(url);
                 
                 // Get GB2312 to parse Chinese characters correctly
