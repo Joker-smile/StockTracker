@@ -279,55 +279,72 @@ namespace StockTracker
                     bool isGreen = currentPrice < open; // 阴线
                         
                         bool aboveMa5 = currentPrice > ma5;
-                        bool highVolume = ratio > 1.2;
-                        bool shrinkVolume = ratio < 0.6;
+                        
+                        // Detailed Volume Tiers
+                        bool isExtremeVolume = ratio > 2.0;
+                        bool isHighVolume = ratio > 1.2 && ratio <= 2.0;
+                        bool isNormalVolume = ratio >= 0.6 && ratio <= 1.2;
+                        bool isShrinkVolume = ratio < 0.6;
+                        
+                        // Handle Extreme A-Share Limit Boards (> 9.0% or < -9.0%)
+                        if (currentPercent >= 9.0)
+                        {
+                            if (isExtremeVolume) return "爆量打板(分歧大/防炸)";
+                            if (isShrinkVolume) return "极度控盘(缩量一字板)";
+                            return "强势封板(多头绝对控盘)";
+                        }
+                        if (currentPercent <= -9.0)
+                        {
+                            if (isExtremeVolume || isHighVolume) return "恐慌跌停(放量杀跌)";
+                            return "情绪雪崩(无量跌停)";
+                        }
                         
                         // A-股 典型特征捕获 (A-share specific patterns)
                         
-                        // 1. 炸板 / 严重冲高回落 (长上影线) 
+                        // 1. 炸板 / 严重冲高回落 (长上影线)
                         if (upperShadow > (bodySize * 2) && upperShadow > (prevClose * 0.03)) 
                         {
-                            if (highVolume) return "高空抛压(长上影放量)"; // 放量长上影，主力跑路概率大
-                            if (!aboveMa5) return "反弹诱多(长上影遇阻)"; // 均线下方长上影，受压回落
-                            return "震荡洗盘(仙人指路?)"; // 上升趋势缩量长上影，可能是试盘
+                            if (isGreen)
+                            {
+                                if (isExtremeVolume || isHighVolume) return "高空抛压(避雷针/主力出逃)";
+                                return "反弹受挫(弱势无力)";
+                            }
+                            else // isRed
+                            {
+                                if (aboveMa5 && isHighVolume) return "震荡试盘(仙人指路)"; // Must be uptrend, red, mild/high volume
+                                if (isExtremeVolume) return "滞涨诱多(放量滞涨)"; 
+                                return "上攻遇阻(长上影)";
+                            }
                         }
                         
-                        // 2. 金针探底 (长下影线)
+                        // 2. 金针探底 / 回踩 (长下影线)
                         if (lowerShadow > (bodySize * 2) && lowerShadow > (prevClose * 0.03))
                         {
-                            if (highVolume) return "金针探底(爆量承接)"; // 底部放量长下影，极可能见底反转
+                            if (isExtremeVolume || isHighVolume) return "金针探底(爆量承接)"; // 底部放量长下影，极可能见底
                             if (aboveMa5) return "单针探底(回踩确认)"; // 均线上方长下影，洗盘结束
-                            return "护盘抵抗(仍处于弱势)"; // 均线下方长下影
-                        }
-                        
-                        // 3. 强势涨停或光头阳线 (几乎无上影线的实体大阳)
-                        if (isRed && currentPercent > 5.0 && upperShadow < (prevClose * 0.005))
-                        {
-                            if (highVolume) return "强势攻击(放量大阳)"; 
-                            return "控盘拉升(缩量大阳)"; 
-                        }
-                        
-                        // 4. 断头铡刀或光脚大阴线
-                        if (isGreen && currentPercent < -5.0 && lowerShadow < (prevClose * 0.005))
-                        {
-                            if (highVolume) return "主力砸盘(放量长阴)";
-                            return "情绪雪崩(缩量阴跌)";
+                            return "护盘抵抗(仍处于弱势)"; // 均线下方缩量长下影
                         }
 
                         // 综合趋势预测判断
                         if (aboveMa5)
                         {
-                            if (highVolume)
+                            if (isExtremeVolume)
                             {
-                                if (currentPercent > 3.0) return "多头主升(带量上攻)";
-                                if (currentPercent > 0.0) return "温和推涨(量价齐升)";
-                                return "高位滞涨(放量不涨)"; // MA5之上，放量却跌了
+                                if (currentPercent > 3.0) return "多头激进(爆量主升)";
+                                if (currentPercent < 0.0) return "高位滞涨(爆量杀跌)";
+                                return "多空剧震(爆量横盘)"; 
                             }
-                            else if (shrinkVolume)
+                            else if (isHighVolume)
+                            {
+                                if (currentPercent > 2.0) return "稳步推涨(量价齐升)";
+                                if (currentPercent < 0.0) return "遇阻回落(放量回撤)";
+                                return "蓄势震荡(温和放量)";
+                            }
+                            else if (isShrinkVolume)
                             {
                                 if (currentPercent > 2.0) return "锁仓拉升(缩量逼空)";
                                 if (currentPercent < 0.0) return "缩量洗盘(良性回踩)";
-                                return "高位横盘(缩量企稳)";
+                                return "企稳横盘(缩量修整)";
                             }
                             else
                             {
@@ -337,23 +354,24 @@ namespace StockTracker
                         }
                         else // Below MA5 (破位、弱势区间)
                         {
-                            if (highVolume)
+                            if (isExtremeVolume || isHighVolume)
                             {
-                                if (currentPercent < -3.0) return "破位杀跌(恐慌盘出)";
-                                if (currentPercent > 0) return "低位抢筹(放量遇阻)"; // 跌破MA5且放量反弹
-                                return "放量下跌(寻底中)"; 
+                                if (currentPercent < -3.0) return "破位杀跌(恐慌出逃)";
+                                if (currentPercent > 0) return "低位抢筹(放量反抽)"; // 跌破MA5且放量反弹
+                                return "放量寻底(支撑未明)"; 
                             }
-                            else if (shrinkVolume)
+                            else if (isShrinkVolume)
                             {
                                 if (currentPercent < 0.0) return "阴跌不止(买盘枯竭)";
-                                return "弱势反抽(无量遇阻)";
+                                if (currentPercent > 1.0) return "弱势反抽(无量遇阻)";
+                                return "弱势阴跌(空头掌控)";
                             }
                             else
                             {
-                                if (currentPercent < -2.0) return "趋势走坏(空头掌控)";
+                                if (currentPercent < -2.0) return "趋势走坏(弱势下沉)";
                                 return "弱势震荡(受压MA5)";
+                            }
                         }
-                    }
                 }
             }
             catch { }
