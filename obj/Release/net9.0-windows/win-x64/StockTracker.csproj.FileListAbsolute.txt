@@ -278,3 +278,4 @@ D:\wwwroot\StockTracker\obj\Release\net9.0-windows\win-x64\refint\StockTracker.d
 D:\wwwroot\StockTracker\obj\Release\net9.0-windows\win-x64\StockTracker.pdb
 D:\wwwroot\StockTracker\obj\Release\net9.0-windows\win-x64\StockTracker.genruntimeconfig.cache
 D:\wwwroot\StockTracker\obj\Release\net9.0-windows\win-x64\ref\StockTracker.dll
+D:\wwwroot\StockTracker\obj\Release\net9.0-windows\win-x64\StockTracker.sourcelink.json
