@@ -1,15 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "VoJ+pwSrQM4=",
+  "dgSpecHash": "Uk2EnJrtTwY=",
   "success": true,
   "projectFilePath": "D:\\wwwroot\\StockTracker\\StockTracker.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.net.illink.tasks\\9.0.3\\microsoft.net.illink.tasks.9.0.3.nupkg.sha512",
     "C:\\Users\\Administrator\\.nuget\\packages\\newtonsoft.json\\13.0.4\\newtonsoft.json.13.0.4.nupkg.sha512",
-    "C:\\Users\\Administrator\\.nuget\\packages\\system.text.encoding.codepages\\10.0.3\\system.text.encoding.codepages.10.0.3.nupkg.sha512",
-    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\9.0.3\\microsoft.netcore.app.runtime.win-x64.9.0.3.nupkg.sha512",
-    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\9.0.3\\microsoft.windowsdesktop.app.runtime.win-x64.9.0.3.nupkg.sha512",
-    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\9.0.3\\microsoft.aspnetcore.app.runtime.win-x64.9.0.3.nupkg.sha512"
+    "C:\\Users\\Administrator\\.nuget\\packages\\system.text.encoding.codepages\\10.0.3\\system.text.encoding.codepages.10.0.3.nupkg.sha512"
   ],
   "logs": []
 }

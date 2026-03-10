@@ -20,7 +20,9 @@ namespace StockTracker
         private HttpClient _httpClient;
         
         // Cache for K-Line volume and close data to prevent spamming Sina API every 3 seconds
-        private Dictionary<string, (double TotalVolume, double TotalClose, int Count, DateTime LastUpdated)> _klineCache = new Dictionary<string, (double, double, int, DateTime)>();
+        // (TotalVolume, HistoricalCloseSum, Count, RecentTrendPercent, LastUpdated)
+        private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, DateTime LastUpdated)> _klineCache = 
+            new Dictionary<string, (double, double, int, double, DateTime)>();
 
         // Custom dragging
         private Point _dragCursorPoint;
@@ -213,171 +215,146 @@ namespace StockTracker
             return "A股";
         }
 
-        private async Task<string> GetVolumePrediction(string fullCode, double currentPrice, double open, double high, double low, double prevClose, double currentVolShares)
+        private async Task<string> GetVolumePrediction(string fullCode, string pureCode, double currentPrice, double open, double high, double low, double prevClose, double currentVolShares)
         {
             try
             {
                 double totalVolume = 0;
-                double totalCloseForMa = currentPrice; // Initialize MA5 sum with 'today's' current price
+                double historicalCloseSum = 0;
+                double recentTrend = 0;
                 int count = 0;
 
-                // Check cache first (expire after 30 minutes since historical data doesn't change rapidly, only today's approximation changes which we inject anyway)
+                // 1. Correct MA5 & Trend Data (Fetch datalen=5 -> 4 historical days + 1 today)
                 if (_klineCache.TryGetValue(fullCode, out var cache) && (DateTime.Now - cache.LastUpdated).TotalMinutes < 30)
                 {
                     totalVolume = cache.TotalVolume;
-                    totalCloseForMa = currentPrice + cache.TotalClose; // live price + past 4 days close
+                    historicalCloseSum = cache.TotalClose;
                     count = cache.Count;
+                    recentTrend = cache.RecentTrend;
                 }
                 else
                 {
-                    // Fetch last 5 "trading" days of k-line data
-                    string klineUrl = $"https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData?symbol={fullCode}&scale=240&ma=no&datalen=6";
+                    string klineUrl = $"https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData?symbol={fullCode}&scale=240&ma=no&datalen=5";
                     string jsonStr = await _httpClient.GetStringAsync(klineUrl);
                     
                     if (!string.IsNullOrWhiteSpace(jsonStr) && jsonStr != "null")
                     {
                         JArray klines = JArray.Parse(jsonStr);
+                        int limit = Math.Max(0, klines.Count - 1); // exclude today
                         
-                        double historicalCloseSum = 0; // store past days separately from today's live price
-
-                        int limit = Math.Max(0, klines.Count - 1); // exclude today's incomplete candle
-                        for (int i = 0; i < limit; i++)
+                        if (limit > 0)
                         {
-                            var kline = klines[i];
-                            if (double.TryParse(kline["volume"].ToString(), out double v))
-                            {
-                                totalVolume += v;
-                                count++;
-                            }
-                            if (double.TryParse(kline["close"].ToString(), out double c))
-                            {
-                                historicalCloseSum += c;
-                            }
-                        }
+                            double firstC = double.Parse(klines[0]["close"].ToString());
+                            double lastC = double.Parse(klines[limit-1]["close"].ToString());
+                            recentTrend = (lastC - firstC) / firstC * 100;
 
-                        // Save to cache
-                        _klineCache[fullCode] = (totalVolume, historicalCloseSum, count, DateTime.Now);
-                        totalCloseForMa += historicalCloseSum;
+                            for (int i = 0; i < limit; i++)
+                            {
+                                var kline = klines[i];
+                                if (double.TryParse(kline["volume"].ToString(), out double v))
+                                {
+                                    totalVolume += v;
+                                    count++;
+                                }
+                                if (double.TryParse(kline["close"].ToString(), out double c))
+                                {
+                                    historicalCloseSum += c;
+                                }
+                            }
+                            _klineCache[fullCode] = (totalVolume, historicalCloseSum, count, recentTrend, DateTime.Now);
+                        }
                     }
                 }
 
                 if (count > 0)
                 {
                     double avgVolume = totalVolume / count;
-                    double ma5 = totalCloseForMa / (count + 1); // 5-day MA (approximated using past 4 full days + current live price)
-                    double ratio = avgVolume > 0 ? (currentVolShares / avgVolume) : 1;
+                    double ma5 = (historicalCloseSum + currentPrice) / (count + 1);
+                    double rawRatio = avgVolume > 0 ? (currentVolShares / avgVolume) : 1;
+                    
+                    // 2. Time-Normalized Volume Ratio (Annualized)
+                    TimeSpan now = DateTime.Now.TimeOfDay;
+                    double minutesPassed = 0, totalMin = 240.0;
+                    if (now < new TimeSpan(9, 30, 0)) minutesPassed = 1;
+                    else if (now < new TimeSpan(11, 30, 0)) minutesPassed = (now - new TimeSpan(9, 30, 0)).TotalMinutes;
+                    else if (now < new TimeSpan(13, 0, 0)) minutesPassed = 120;
+                    else minutesPassed = 120 + Math.Min(120, (now - new TimeSpan(13, 0, 0)).TotalMinutes);
+                    
+                    double timeProgress = Math.Max(0.01, minutesPassed / totalMin);
+                    double ratio = rawRatio / timeProgress;
+                    
                     double currentPercent = prevClose > 0 ? ((currentPrice - prevClose) / prevClose * 100) : 0;
                     
-                    // K-line Shape Analysis
+                    // 3. Market-Specific Limit Thresholds
+                    double limitRate = 0.10;
+                    if (pureCode.StartsWith("688") || pureCode.StartsWith("300") || pureCode.StartsWith("301")) limitRate = 0.20;
+                    if (pureCode.StartsWith("8") || pureCode.StartsWith("4")) limitRate = 0.30;
+                    double limitThreshold = (limitRate - 0.005) * 100;
+
+                    if (currentPercent >= limitThreshold)
+                    {
+                        if (ratio > 2.0) return "爆量打板(分歧大/防炸)";
+                        if (ratio < 0.6) return "极度控盘(缩量一字板)";
+                        return "强势封板(多头绝对控盘)";
+                    }
+                    if (currentPercent <= -limitThreshold)
+                    {
+                        return ratio > 1.2 ? "恐慌跌停(放量杀跌)" : "情绪雪崩(无量跌停)";
+                    }
+
+                    // 4. K-line Shape & Doji Guard
                     double bodyTop = Math.Max(open, currentPrice);
                     double bodyBottom = Math.Min(open, currentPrice);
                     double upperShadow = high - bodyTop;
                     double lowerShadow = bodyBottom - low;
                     double bodySize = bodyTop - bodyBottom;
-                    
-                    bool isRed = currentPrice > open; // 阳线
-                    bool isGreen = currentPrice < open; // 阴线
-                        
-                        bool aboveMa5 = currentPrice > ma5;
-                        
-                        // Detailed Volume Tiers
-                        bool isExtremeVolume = ratio > 2.0;
-                        bool isHighVolume = ratio > 1.2 && ratio <= 2.0;
-                        bool isNormalVolume = ratio >= 0.6 && ratio <= 1.2;
-                        bool isShrinkVolume = ratio < 0.6;
-                        
-                        // Handle Extreme A-Share Limit Boards (> 9.0% or < -9.0%)
-                        if (currentPercent >= 9.0)
-                        {
-                            if (isExtremeVolume) return "爆量打板(分歧大/防炸)";
-                            if (isShrinkVolume) return "极度控盘(缩量一字板)";
-                            return "强势封板(多头绝对控盘)";
-                        }
-                        if (currentPercent <= -9.0)
-                        {
-                            if (isExtremeVolume || isHighVolume) return "恐慌跌停(放量杀跌)";
-                            return "情绪雪崩(无量跌停)";
-                        }
-                        
-                        // A-股 典型特征捕获 (A-share specific patterns)
-                        
-                        // 1. 炸板 / 严重冲高回落 (长上影线)
-                        if (upperShadow > (bodySize * 2) && upperShadow > (prevClose * 0.03)) 
-                        {
-                            if (isGreen)
-                            {
-                                if (isExtremeVolume || isHighVolume) return "高空抛压(避雷针/主力出逃)";
-                                return "反弹受挫(弱势无力)";
-                            }
-                            else // isRed
-                            {
-                                if (aboveMa5 && isHighVolume) return "震荡试盘(仙人指路)"; // Must be uptrend, red, mild/high volume
-                                if (isExtremeVolume) return "滞涨诱多(放量滞涨)"; 
-                                return "上攻遇阻(长上影)";
-                            }
-                        }
-                        
-                        // 2. 金针探底 / 回踩 (长下影线)
-                        if (lowerShadow > (bodySize * 2) && lowerShadow > (prevClose * 0.03))
-                        {
-                            if (isExtremeVolume || isHighVolume) return "金针探底(爆量承接)"; // 底部放量长下影，极可能见底
-                            if (aboveMa5) return "单针探底(回踩确认)"; // 均线上方长下影，洗盘结束
-                            return "护盘抵抗(仍处于弱势)"; // 均线下方缩量长下影
-                        }
+                    bool isRed = currentPrice > open;
+                    bool isGreen = currentPrice < open;
+                    bool hasSignificantBody = bodySize > prevClose * 0.003;
 
-                        // 综合趋势预测判断
-                        if (aboveMa5)
-                        {
-                            if (isExtremeVolume)
-                            {
-                                if (currentPercent > 3.0) return "多头激进(爆量主升)";
-                                if (currentPercent < 0.0) return "高位滞涨(爆量杀跌)";
-                                return "多空剧震(爆量横盘)"; 
-                            }
-                            else if (isHighVolume)
-                            {
-                                if (currentPercent > 2.0) return "稳步推涨(量价齐升)";
-                                if (currentPercent < 0.0) return "遇阻回落(放量回撤)";
-                                return "蓄势震荡(温和放量)";
-                            }
-                            else if (isShrinkVolume)
-                            {
-                                if (currentPercent > 2.0) return "锁仓拉升(缩量逼空)";
-                                if (currentPercent < 0.0) return "缩量洗盘(良性回踩)";
-                                return "企稳横盘(缩量修整)";
-                            }
-                            else
-                            {
-                                if (currentPercent > 2.0) return "趋势向好(多头掌控)";
-                                return "震荡攀升(沿5日线)";
-                            }
-                        }
-                        else // Below MA5 (破位、弱势区间)
-                        {
-                            if (isExtremeVolume || isHighVolume)
-                            {
-                                if (currentPercent < -3.0) return "破位杀跌(恐慌出逃)";
-                                if (currentPercent > 0) return "低位抢筹(放量反抽)"; // 跌破MA5且放量反弹
-                                return "放量寻底(支撑未明)"; 
-                            }
-                            else if (isShrinkVolume)
-                            {
-                                if (currentPercent < 0.0) return "阴跌不止(买盘枯竭)";
-                                if (currentPercent > 1.0) return "弱势反抽(无量遇阻)";
-                                return "弱势阴跌(空头掌控)";
-                            }
-                            else
-                            {
-                                if (currentPercent < -2.0) return "趋势走坏(弱势下沉)";
-                                return "弱势震荡(受压MA5)";
-                            }
-                        }
+                    // 5. MA5 Deviation Band
+                    double ma5Dev = (currentPrice - ma5) / ma5 * 100;
+                    bool clearlyAbove = ma5Dev > 1.0;
+                    bool nearMa5 = Math.Abs(ma5Dev) <= 1.0;
+                    bool clearlyBelow = ma5Dev < -1.0;
+
+                    // 6. Refined Patterns (Trend aware)
+                    bool isUptrend = recentTrend > 2.0;
+
+                    // Long Upper Shadow
+                    if (upperShadow > (hasSignificantBody ? bodySize * 2 : prevClose * 0.02) && upperShadow > prevClose * 0.03)
+                    {
+                        if (isGreen) return ratio > 1.2 ? "抛压巨大(避雷针)" : "反弹受阻";
+                        if (isRed && clearlyAbove && isUptrend && ratio < 1.8) return "震荡试盘(仙人指路)";
+                        return "强势回落(待观察)";
+                    }
+
+                    // Long Lower Shadow
+                    if (lowerShadow > (hasSignificantBody ? bodySize * 2 : prevClose * 0.02) && lowerShadow > prevClose * 0.03)
+                    {
+                        if (ratio > 1.5) return "金针探底(爆量承接)";
+                        if (clearlyAbove) return "回踩确认(洗盘结束)";
+                        return "弱势抵抗";
+                    }
+
+                    // 7. General Trend Prediction
+                    if (clearlyAbove || (nearMa5 && currentPercent > 0))
+                    {
+                        if (ratio > 2.0) return currentPercent > 3.0 ? "爆量主升" : "高位滞涨";
+                        if (ratio < 0.6) return currentPercent > 1.0 ? "缩量逼空" : "缩量洗盘";
+                        return currentPercent > 2.0 ? "多头掌控" : "震荡攀升";
+                    }
+                    else
+                    {
+                        if (ratio > 1.2) return currentPercent < -3.0 ? "破位杀跌" : "低位抢筹";
+                        return currentPercent < -1.0 ? "阴跌不止" : "弱势震荡";
+                    }
                 }
             }
             catch { }
-            
             return "数据不足(盘面不明)";
         }
+
 
         private async Task UpdatePrices()
         {
@@ -450,7 +427,7 @@ namespace StockTracker
                                     double.TryParse(volStr, out currentVolShares);
 
                                     // Async advanced analysis
-                                    string pred = await GetVolumePrediction(GetPrefix(pureCode) + pureCode, current, open, high, low, prevClose, currentVolShares);
+                                    string pred = await GetVolumePrediction(GetPrefix(pureCode) + pureCode, pureCode, current, open, high, low, prevClose, currentVolShares);
 
                                     // Display format example: 贵州茅台[600519] 1500.00 +1.20% | 买:1499 卖:1501 | 智测:强烈看涨(主力介入)
                                     displayTexts.Add($"{name}[{pureCode}] {current:F2} {(percent>0?"+":"")}{percent:F2}% | 买:{bid} 卖:{ask} | 智测:{pred}");
