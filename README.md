@@ -118,7 +118,13 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 
 ---
 
-## ⚖️ 免责条款 (Disclaimer)
+## 🚀 快速开始 (Quick Start)
+
+**直接运行 (Recommended)**:
+1. 下载最新的绿色免安装版：[**StockTracker.exe (点击下载)**](https://github.com/Joker-smile/StockTracker/raw/master/publish/StockTracker.exe)
+2. 双击运行即可。程序将在同级目录下自动生成 `stocks.txt` 配置文件。
+
+---
 
 **在使用本工具前，请务必阅读以下声明：**
 
