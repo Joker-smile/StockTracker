@@ -12,12 +12,12 @@ namespace StockTracker
 {
     public partial class Form1 : Form
     {
-        private System.Windows.Forms.Timer _timer;
+        private System.Windows.Forms.Timer? _timer;
         private List<string> _stocks = new List<string>();
-        private Label _displayLabel;
-        private ContextMenuStrip _contextMenu;
+        private Label? _displayLabel;
+        private ContextMenuStrip? _contextMenu;
         private readonly string _configFile;
-        private HttpClient _httpClient;
+        private HttpClient? _httpClient;
         
         // Cache for K-Line volume and close data to prevent spamming Sina API every 3 seconds
         // (TotalVolume, HistoricalCloseSum, Count, RecentTrendPercent, LastUpdated)
@@ -61,14 +61,16 @@ namespace StockTracker
             this.Opacity = 0.6; // Slightly more visible for the extra text
             this.Size = new Size(300, 20);
             this.StartPosition = FormStartPosition.Manual;
-            this.Location = new Point(Screen.PrimaryScreen.WorkingArea.Width - 350, Screen.PrimaryScreen.WorkingArea.Height - 50);
+            int screenWidth = Screen.PrimaryScreen?.WorkingArea.Width ?? 1920;
+            int screenHeight = Screen.PrimaryScreen?.WorkingArea.Height ?? 1080;
+            this.Location = new Point(screenWidth - 350, screenHeight - 50);
 
             _displayLabel = new Label
             {
                 AutoSize = false,
                 Dock = DockStyle.Fill,
                 ForeColor = Color.LightGray,
-                Font = new Font("Microsoft YaHei", 9F, FontStyle.Regular, GraphicsUnit.Point),
+                Font = new Font("Consolas", 9F, FontStyle.Regular, GraphicsUnit.Point),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Text = "...",
                 BackColor = Color.Transparent
@@ -113,7 +115,7 @@ namespace StockTracker
             _displayLabel.MouseUp += (s, e) => { _dragging = false; };
         }
 
-        private void AddStockItem_Click(object sender, EventArgs e)
+        private void AddStockItem_Click(object? sender, EventArgs e)
         {
             Form prompt = new Form()
             {
@@ -154,7 +156,7 @@ namespace StockTracker
             return true;
         }
 
-        private void RemoveStockItem_Click(object sender, EventArgs e)
+        private void RemoveStockItem_Click(object? sender, EventArgs e)
         {
             _stocks.Clear();
             SaveConfig();
@@ -244,21 +246,24 @@ namespace StockTracker
                         
                         if (limit > 0)
                         {
-                            double firstC = double.Parse(klines[0]["close"].ToString());
-                            double lastC = double.Parse(klines[limit-1]["close"].ToString());
-                            recentTrend = (lastC - firstC) / firstC * 100;
+                            double firstC = double.Parse(klines[0]?["close"]?.ToString() ?? "0");
+                            double lastC = double.Parse(klines[limit-1]?["close"]?.ToString() ?? "0");
+                            recentTrend = firstC > 0 ? (lastC - firstC) / firstC * 100 : 0;
 
                             for (int i = 0; i < limit; i++)
                             {
                                 var kline = klines[i];
-                                if (double.TryParse(kline["volume"].ToString(), out double v))
+                                if (kline != null)
                                 {
-                                    totalVolume += v;
-                                    count++;
-                                }
-                                if (double.TryParse(kline["close"].ToString(), out double c))
-                                {
-                                    historicalCloseSum += c;
+                                    if (double.TryParse(kline["volume"]?.ToString(), out double v))
+                                    {
+                                        totalVolume += v;
+                                        count++;
+                                    }
+                                    if (double.TryParse(kline["close"]?.ToString(), out double c))
+                                    {
+                                        historicalCloseSum += c;
+                                    }
                                 }
                             }
                             _klineCache[fullCode] = (totalVolume, historicalCloseSum, count, recentTrend, DateTime.Now);
@@ -291,15 +296,22 @@ namespace StockTracker
                     if (pureCode.StartsWith("8") || pureCode.StartsWith("4")) limitRate = 0.30;
                     double limitThreshold = (limitRate - 0.005) * 100;
 
+                    string status = "[观察]";
+                    string result = "";
+
                     if (currentPercent >= limitThreshold)
                     {
-                        if (ratio > 2.0) return "爆量打板(分歧大/防炸)";
-                        if (ratio < 0.6) return "极度控盘(缩量一字板)";
-                        return "强势封板(多头绝对控盘)";
+                        status = "[看多]";
+                        if (ratio > 2.0) result = "爆量打板(分歧大/防炸)";
+                        else if (ratio < 0.6) result = "极度控盘(缩量一字板)";
+                        else result = "强势封板(多头绝对控盘)";
+                        return $"{status}{result}";
                     }
                     if (currentPercent <= -limitThreshold)
                     {
-                        return ratio > 1.2 ? "恐慌跌停(放量杀跌)" : "情绪雪崩(无量跌停)";
+                        status = "[看空]";
+                        result = ratio > 1.2 ? "恐慌跌停(放量杀跌)" : "情绪雪崩(无量跌停)";
+                        return $"{status}{result}";
                     }
 
                     // 4. K-line Shape & Doji Guard
@@ -324,31 +336,34 @@ namespace StockTracker
                     // Long Upper Shadow
                     if (upperShadow > (hasSignificantBody ? bodySize * 2 : prevClose * 0.02) && upperShadow > prevClose * 0.03)
                     {
-                        if (isGreen) return ratio > 1.2 ? "抛压巨大(避雷针)" : "反弹受阻";
-                        if (isRed && clearlyAbove && isUptrend && ratio < 1.8) return "震荡试盘(仙人指路)";
-                        return "强势回落(待观察)";
+                        if (isGreen) return "[看空]抛压巨大(避雷针)";
+                        if (isRed && clearlyAbove && isUptrend && ratio < 1.8) return "[看多]震荡试盘(仙人指路)";
+                        return "[观察]强势回落(待观察)";
                     }
 
                     // Long Lower Shadow
                     if (lowerShadow > (hasSignificantBody ? bodySize * 2 : prevClose * 0.02) && lowerShadow > prevClose * 0.03)
                     {
-                        if (ratio > 1.5) return "金针探底(爆量承接)";
-                        if (clearlyAbove) return "回踩确认(洗盘结束)";
-                        return "弱势抵抗";
+                        if (ratio > 1.5) return "[看多]金针探底(爆量承接)";
+                        if (clearlyAbove) return "[看多]回踩确认(洗盘结束)";
+                        return "[观察]弱势抵抗";
                     }
 
                     // 7. General Trend Prediction
                     if (clearlyAbove || (nearMa5 && currentPercent > 0))
                     {
-                        if (ratio > 2.0) return currentPercent > 3.0 ? "爆量主升" : "高位滞涨";
-                        if (ratio < 0.6) return currentPercent > 1.0 ? "缩量逼空" : "缩量洗盘";
-                        return currentPercent > 2.0 ? "多头掌控" : "震荡攀升";
+                        status = "[看多]";
+                        if (ratio > 2.0) result = currentPercent > 3.0 ? "爆量主升" : "高位滞涨";
+                        else if (ratio < 0.6) result = currentPercent > 1.0 ? "缩量逼空" : "缩量洗盘";
+                        else result = currentPercent > 2.0 ? "多头掌控" : "震荡攀升";
                     }
                     else
                     {
-                        if (ratio > 1.2) return currentPercent < -3.0 ? "破位杀跌" : "低位抢筹";
-                        return currentPercent < -1.0 ? "阴跌不止" : "弱势震荡";
+                        status = currentPercent < -2.0 ? "[看空]" : "[观察]";
+                        if (ratio > 1.2) result = currentPercent < -3.0 ? "破位杀跌" : "低位抢筹";
+                        else result = currentPercent < -1.0 ? "阴跌不止" : "弱势震荡";
                     }
+                    return $"{status}{result}";
                 }
             }
             catch { }
@@ -429,8 +444,20 @@ namespace StockTracker
                                     // Async advanced analysis
                                     string pred = await GetVolumePrediction(GetPrefix(pureCode) + pureCode, pureCode, current, open, high, low, prevClose, currentVolShares);
 
-                                    // Display format example: 贵州茅台[600519] 1500.00 +1.20% | 买:1499 卖:1501 | 智测:强烈看涨(主力介入)
-                                    displayTexts.Add($"{name}[{pureCode}] {current:F2} {(percent>0?"+":"")}{percent:F2}% | 买:{bid} 卖:{ask} | 智测:{pred}");
+                                    // Align fields: Name(8), Price(8), Percent(8), Bid(7), Ask(7)
+                                    string formattedPercent = $"{(percent > 0 ? "+" : "")}{percent:F2}%";
+                                    // Use a simpler approach for name alignment: ensure consistent length
+                                    string displayName = name.Length > 4 ? name.Substring(0, 4) : name.PadRight(4, '　');
+                                    string displayRow = string.Format("{0} [{1}] {2,8:F2} {3,8} | 买:{4,7} 卖:{5,7} | 智测:{6}",
+                                        displayName,
+                                        pureCode,
+                                        current,
+                                        formattedPercent,
+                                        bid,
+                                        ask,
+                                        pred);
+                                    
+                                    displayTexts.Add(displayRow);
                                 }
                             }
                         }
@@ -440,10 +467,13 @@ namespace StockTracker
                 if (displayTexts.Count > 0)
                 {
                     string combined = string.Join("\n", displayTexts);
-                    if (_displayLabel.InvokeRequired)
-                        _displayLabel.Invoke(new Action(() => UpdateText(combined)));
-                    else
-                        UpdateText(combined);
+                    if (_displayLabel != null)
+                    {
+                        if (_displayLabel.InvokeRequired)
+                            _displayLabel.Invoke(new Action(() => UpdateText(combined)));
+                        else
+                            UpdateText(combined);
+                    }
                 }
             }
             catch
@@ -454,18 +484,21 @@ namespace StockTracker
 
         private void UpdateText(string text)
         {
-            if (_displayLabel.InvokeRequired)
+            if (_displayLabel != null)
             {
-                _displayLabel.Invoke(new Action(() => UpdateText(text)));
-                return;
-            }
+                if (_displayLabel.InvokeRequired)
+                {
+                    _displayLabel.Invoke(new Action(() => UpdateText(text)));
+                    return;
+                }
+                _displayLabel.Text = text;
 
-            _displayLabel.Text = text;
-            using (Graphics g = CreateGraphics())
-            {
-                SizeF size = g.MeasureString(text, _displayLabel.Font);
-                this.Width = Math.Max(200, (int)size.Width + 20);
-                this.Height = Math.Max(20, (int)size.Height + 5);
+                using (Graphics g = CreateGraphics())
+                {
+                    SizeF size = g.MeasureString(text, _displayLabel.Font);
+                    this.Width = Math.Max(200, (int)size.Width + 20);
+                    this.Height = Math.Max(20, (int)size.Height + 5);
+                }
             }
         }
     }
