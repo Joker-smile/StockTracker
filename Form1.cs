@@ -14,7 +14,10 @@ namespace StockTracker
     {
         private System.Windows.Forms.Timer? _timer;
         private List<string> _stocks = new List<string>();
-        private Label? _displayLabel;
+        private FlowLayoutPanel? _stockContainer;
+        private Panel? _header;
+        private Label? _btnMin;
+        private Label? _btnClose;
         private ContextMenuStrip? _contextMenu;
         private readonly string _configFile;
         private HttpClient? _httpClient;
@@ -56,7 +59,8 @@ namespace StockTracker
         {
             this.FormBorderStyle = FormBorderStyle.None;
             this.TopMost = true;
-            this.ShowInTaskbar = false;
+            this.MinimizeBox = true;
+            this.Resize += Form1_Resize;
             this.BackColor = Color.Black;
             this.Opacity = 0.6; // Slightly more visible for the extra text
             this.Size = new Size(300, 20);
@@ -65,54 +69,81 @@ namespace StockTracker
             int screenHeight = Screen.PrimaryScreen?.WorkingArea.Height ?? 1080;
             this.Location = new Point(screenWidth - 350, screenHeight - 50);
 
-            _displayLabel = new Label
+            _header = new Panel
             {
-                AutoSize = false,
+                Dock = DockStyle.Top,
+                Height = 18,
+                BackColor = Color.FromArgb(40, 40, 40)
+            };
+
+            _btnClose = new Label
+            {
+                Text = "×",
+                ForeColor = Color.Gray,
+                Width = 20,
+                Dock = DockStyle.Right,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand
+            };
+            _btnClose.Click += (s, e) => Application.Exit();
+            _btnClose.MouseEnter += (s, e) => _btnClose.ForeColor = Color.White;
+            _btnClose.MouseLeave += (s, e) => _btnClose.ForeColor = Color.Gray;
+
+            _btnMin = new Label
+            {
+                Text = "—",
+                ForeColor = Color.Gray,
+                Width = 20,
+                Dock = DockStyle.Right,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand
+            };
+            _btnMin.Click += (s, e) => {
+                this.ShowInTaskbar = true;
+                this.WindowState = FormWindowState.Minimized;
+            };
+            _btnMin.MouseEnter += (s, e) => _btnMin.ForeColor = Color.White;
+            _btnMin.MouseLeave += (s, e) => _btnMin.ForeColor = Color.Gray;
+
+            _header.Controls.Add(_btnMin);
+            _header.Controls.Add(_btnClose);
+
+            _stockContainer = new FlowLayoutPanel
+            {
                 Dock = DockStyle.Fill,
-                ForeColor = Color.LightGray,
-                Font = new Font("NSimSun", 9F, FontStyle.Regular, GraphicsUnit.Point),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Text = "...",
-                BackColor = Color.Transparent
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoScroll = false,
+                BackColor = Color.Transparent,
+                Padding = new Padding(5, 2, 5, 2)
             };
-            this.Controls.Add(_displayLabel);
 
-            // Context Menu
+            this.Controls.Add(_stockContainer);
+            this.Controls.Add(_header);
+
+            // Context Menu (Move to container for right click)
             _contextMenu = new ContextMenuStrip();
-            var addStockItem = new ToolStripMenuItem("添加股票代码");
-            addStockItem.Click += AddStockItem_Click;
-            
-            var removeStockItem = new ToolStripMenuItem("清空股票");
-            removeStockItem.Click += RemoveStockItem_Click;
+            _contextMenu.Items.Add("添加股票", null, AddStockItem_Click);
+            _contextMenu.Items.Add("清空列表", null, RemoveStockItem_Click);
+            _stockContainer.ContextMenuStrip = _contextMenu;
+            _header.ContextMenuStrip = _contextMenu;
 
-            var exitItem = new ToolStripMenuItem("退出");
-            exitItem.Click += (s, e) => Application.Exit();
+            // Dragging (Updated for header and container)
+            Control[] draggables = { _header, _stockContainer };
+            foreach (var ctrl in draggables)
+            {
+                ctrl.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) { _dragging = true; _dragCursorPoint = Cursor.Position; _dragFormPoint = this.Location; } };
+                ctrl.MouseMove += (s, e) => { if (_dragging) { Point diff = Point.Subtract(Cursor.Position, new Size(_dragCursorPoint)); this.Location = Point.Add(_dragFormPoint, new Size(diff)); } };
+                ctrl.MouseUp += (s, e) => { _dragging = false; };
+            }
+        }
 
-            _contextMenu.Items.Add(addStockItem);
-            _contextMenu.Items.Add(removeStockItem);
-            _contextMenu.Items.Add(new ToolStripSeparator());
-            _contextMenu.Items.Add(exitItem);
-
-            _displayLabel.ContextMenuStrip = _contextMenu;
-
-            // Draggable
-            _displayLabel.MouseDown += (s, e) => {
-                if (e.Button == MouseButtons.Left) {
-                    _dragging = true;
-                    _dragCursorPoint = Cursor.Position;
-                    _dragFormPoint = this.Location;
-                }
-            };
-            _displayLabel.MouseMove += (s, e) => {
-                if (_dragging) {
-                    Point currentCursorPosition = Cursor.Position;
-                    Point newLocation = new Point(
-                        _dragFormPoint.X + (currentCursorPosition.X - _dragCursorPoint.X),
-                        _dragFormPoint.Y + (currentCursorPosition.Y - _dragCursorPoint.Y));
-                    this.Location = newLocation;
-                }
-            };
-            _displayLabel.MouseUp += (s, e) => { _dragging = false; };
+        private void Form1_Resize(object? sender, EventArgs e)
+        {
+            if (this.WindowState == FormWindowState.Normal)
+            {
+                this.ShowInTaskbar = false;
+            }
         }
 
         private void AddStockItem_Click(object? sender, EventArgs e)
@@ -467,13 +498,12 @@ namespace StockTracker
 
                 if (displayTexts.Count > 0)
                 {
-                    string combined = string.Join("\n", displayTexts);
-                    if (_displayLabel != null)
+                    if (_stockContainer != null)
                     {
-                        if (_displayLabel.InvokeRequired)
-                            _displayLabel.Invoke(new Action(() => UpdateText(combined)));
+                        if (_stockContainer.InvokeRequired)
+                            _stockContainer.Invoke(new Action(() => UpdateRows(displayTexts)));
                         else
-                            UpdateText(combined);
+                            UpdateRows(displayTexts);
                     }
                 }
             }
@@ -483,24 +513,53 @@ namespace StockTracker
             }
         }
 
+        private void UpdateRows(List<string> rows)
+        {
+            if (_stockContainer == null) return;
+
+            _stockContainer.SuspendLayout();
+            _stockContainer.Controls.Clear();
+
+            foreach (var row in rows)
+            {
+                Label lbl = new Label
+                {
+                    Text = row,
+                    AutoSize = true,
+                    ForeColor = Color.LightGray,
+                    Font = new Font("NSimSun", 9F, FontStyle.Regular, GraphicsUnit.Point),
+                    Margin = new Padding(0, 3, 0, 3) // Vertical spacing
+                };
+                // Make row draggable too
+                lbl.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) { _dragging = true; _dragCursorPoint = Cursor.Position; _dragFormPoint = this.Location; } };
+                lbl.MouseMove += (s, e) => { if (_dragging) { Point diff = Point.Subtract(Cursor.Position, new Size(_dragCursorPoint)); this.Location = Point.Add(_dragFormPoint, new Size(diff)); } };
+                lbl.MouseUp += (s, e) => { _dragging = false; };
+                
+                // Keep context menu consistent
+                lbl.ContextMenuStrip = _contextMenu;
+
+                _stockContainer.Controls.Add(lbl);
+            }
+            _stockContainer.ResumeLayout();
+
+            // Adjust form size
+            int totalWidth = 0;
+            int totalHeight = _header?.Height ?? 18;
+            foreach (Control ctrl in _stockContainer.Controls)
+            {
+                totalWidth = Math.Max(totalWidth, ctrl.GetPreferredSize(new Size(1000, 0)).Width);
+                totalHeight += ctrl.Height + ctrl.Margin.Top + ctrl.Margin.Bottom;
+            }
+            totalHeight += _stockContainer.Padding.Top + _stockContainer.Padding.Bottom;
+            
+            this.Width = Math.Max(300, totalWidth + 20);
+            this.Height = totalHeight;
+        }
+
         private void UpdateText(string text)
         {
-            if (_displayLabel != null)
-            {
-                if (_displayLabel.InvokeRequired)
-                {
-                    _displayLabel.Invoke(new Action(() => UpdateText(text)));
-                    return;
-                }
-                _displayLabel.Text = text;
-
-                using (Graphics g = CreateGraphics())
-                {
-                    SizeF size = g.MeasureString(text, _displayLabel.Font);
-                    this.Width = Math.Max(200, (int)size.Width + 20);
-                    this.Height = Math.Max(20, (int)size.Height + 5);
-                }
-            }
+            // Deprecated but keeping signature for now if needed by other components
+            UpdateRows(new List<string> { text });
         }
 
         private string PadRightVisual(string text, int targetWidth)
