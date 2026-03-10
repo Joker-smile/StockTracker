@@ -70,7 +70,7 @@ namespace StockTracker
                 AutoSize = false,
                 Dock = DockStyle.Fill,
                 ForeColor = Color.LightGray,
-                Font = new Font("Consolas", 9F, FontStyle.Regular, GraphicsUnit.Point),
+                Font = new Font("NSimSun", 9F, FontStyle.Regular, GraphicsUnit.Point),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Text = "...",
                 BackColor = Color.Transparent
@@ -446,10 +446,9 @@ namespace StockTracker
                                     // Async advanced analysis
                                     string pred = await GetVolumePrediction(GetPrefix(pureCode) + pureCode, pureCode, current, open, high, low, prevClose, currentVolShares);
 
-                                    // Align fields: Name(8), Price(8), Percent(8), Bid(7), Ask(7)
+                                    // Align fields: Name(10 units = 5 CJK), Price(8), Percent(8), Bid(7), Ask(7)
                                     string formattedPercent = $"{(percent > 0 ? "+" : "")}{percent:F2}%";
-                                    // Use a simpler approach for name alignment: ensure consistent length
-                                    string displayName = name.Length > 4 ? name.Substring(0, 4) : name.PadRight(4, '　');
+                                    string displayName = PadRightVisual(name, 10);
                                     string displayRow = string.Format("{0} [{1}] {2,8:F2} {3,8} | 买:{4,7} 卖:{5,7} | 智测:{6}",
                                         displayName,
                                         pureCode,
@@ -502,6 +501,13 @@ namespace StockTracker
                     this.Height = Math.Max(20, (int)size.Height + 5);
                 }
             }
+        }
+
+        private string PadRightVisual(string text, int targetWidth)
+        {
+            int currWidth = 0;
+            foreach (char c in text) currWidth += (c > 127) ? 2 : 1;
+            return text + new string(' ', Math.Max(0, targetWidth - currWidth));
         }
     }
 }
