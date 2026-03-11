@@ -167,8 +167,10 @@ namespace StockTracker
 
             if (prompt.ShowDialog() == DialogResult.OK)
             {
-                string input = textBox.Text.Trim();
-                if (input.Length == 6 && IsDigitsOnly(input) && !_stocks.Contains(input))
+                string input = textBox.Text.Trim().ToLower();
+                // Allow optional prefix (sh/sz/bj) + 6 digits
+                System.Text.RegularExpressions.Regex stockRegex = new System.Text.RegularExpressions.Regex(@"^(sh|sz|bj)?\d{6}$");
+                if (stockRegex.IsMatch(input) && !_stocks.Contains(input))
                 {
                     _stocks.Add(input);
                     SaveConfig();
@@ -203,13 +205,8 @@ namespace StockTracker
                 _stocks = new List<string>();
                 foreach (var line in lines)
                 {
-                    string cleaned = line.Trim();
-                    // Clean old prefixes
-                    if (cleaned.Length > 6)
-                    {
-                        cleaned = cleaned.Substring(cleaned.Length - 6);
-                    }
-                    if (cleaned.Length == 6 && IsDigitsOnly(cleaned))
+                    string cleaned = line.Trim().ToLower();
+                    if (!string.IsNullOrEmpty(cleaned) && !_stocks.Contains(cleaned))
                     {
                         _stocks.Add(cleaned);
                     }
@@ -232,19 +229,38 @@ namespace StockTracker
         
         private string GetPrefix(string code)
         {
-            if (code.StartsWith("6")) return "sh";
-            if (code.StartsWith("0") || code.StartsWith("3")) return "sz";
+            // If the code already has a prefix, respect it
+            if (code.StartsWith("sh") || code.StartsWith("sz") || code.StartsWith("bj"))
+                return code.Substring(0, 2);
+
+            if (code.StartsWith("5") || code.StartsWith("6") || code.StartsWith("7") || code.StartsWith("9")) return "sh";
+            if (code.StartsWith("0") || code.StartsWith("1") || code.StartsWith("2") || code.StartsWith("3")) return "sz";
             if (code.StartsWith("8") || code.StartsWith("4")) return "bj";
             return "sh"; // fallback
         }
 
         private string GetSector(string code)
         {
-            if (code.StartsWith("688")) return "科创板";
-            if (code.StartsWith("6")) return "上证主板";
-            if (code.StartsWith("3")) return "创业板";
-            if (code.StartsWith("0")) return "深证主板";
-            if (code.StartsWith("8") || code.StartsWith("4")) return "北交所";
+            string pureCode = code.Length > 6 ? code.Substring(code.Length - 6) : code;
+            string prefix = code.Length > 6 ? code.Substring(0, 2) : GetPrefix(code);
+
+            if (prefix == "sh" && (pureCode.StartsWith("000") || pureCode.StartsWith("001"))) return "上证指数";
+            if (prefix == "sz" && pureCode.StartsWith("399")) return "深证指数";
+            
+            if (pureCode.StartsWith("51") || pureCode.StartsWith("58")) return "沪市ETF";
+            if (pureCode.StartsWith("15")) return "深市ETF";
+            if (pureCode.StartsWith("16")) return "深市LOF";
+            if (pureCode.StartsWith("501")) return "沪市LOF";
+            if (pureCode.StartsWith("508")) return "沪市REITs";
+            if (pureCode.StartsWith("180")) return "深市REITs";
+            if (pureCode.StartsWith("50")) return "沪市基金";
+            if (pureCode.StartsWith("18")) return "深市基金";
+            if (pureCode.StartsWith("11") || pureCode.StartsWith("12")) return "可转债";
+            if (pureCode.StartsWith("688")) return "科创板";
+            if (pureCode.StartsWith("6")) return "上证主板";
+            if (pureCode.StartsWith("3")) return "创业板";
+            if (pureCode.StartsWith("0")) return "深证主板";
+            if (pureCode.StartsWith("8") || pureCode.StartsWith("4")) return "北交所";
             return "A股";
         }
 
@@ -417,7 +433,9 @@ namespace StockTracker
                 List<string> prefixedCodes = new List<string>();
                 foreach(var code in _stocks)
                 {
-                    prefixedCodes.Add(GetPrefix(code) + code);
+                    string p = GetPrefix(code);
+                    string c = code.Length > 6 ? code.Substring(code.Length - 6) : code;
+                    prefixedCodes.Add(p + c);
                 }
 
                 string url = $"http://hq.sinajs.cn/list={string.Join(",", prefixedCodes)}";
@@ -456,9 +474,12 @@ namespace StockTracker
                                 {
                                     double percent = 0;
                                     if (prevClose > 0)
-                                        percent = (current - prevClose) / prevClose * 100;
-                                    
-                                    if (current == 0 && prevClose > 0) current = prevClose;
+                                    {
+                                        if (current > 0)
+                                            percent = (current - prevClose) / prevClose * 100;
+                                        else
+                                            current = prevClose; // Use prevClose if not yet traded
+                                    }
 
                                     string sector = GetSector(pureCode);
                                     // Extract K-line basics from the Sina real-time row
