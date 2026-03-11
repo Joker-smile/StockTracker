@@ -633,8 +633,7 @@ public partial class MainWindow : Window
                 
                 AddCol(item.Price, 2, HorizontalAlignment.Right);
                 
-                IBrush? pctColor = item.Pct.StartsWith("+") ? Brush.Parse("#FFFF4444") : (item.Pct.StartsWith("-") ? Brush.Parse("#FF44FF44") : null);
-                AddCol(item.Pct, 4, HorizontalAlignment.Right, pctColor);
+                AddCol(item.Pct, 4, HorizontalAlignment.Right);
                 
                 if (!string.IsNullOrEmpty(item.Price))
                 {
