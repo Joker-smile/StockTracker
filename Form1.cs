@@ -519,7 +519,7 @@ namespace StockTracker
                                     // Align fields: Name(10 units = 5 CJK), Price(8), Percent(8), Bid(7), Ask(7)
                                     string formattedPercent = $"{(percent > 0 ? "+" : "")}{percent:F2}%";
                                     string displayName = PadRightVisual(name, 10);
-                                    string displayRow = string.Format("{0} [{1}] {2,8:F2} {3,8} | 买:{4,7} 卖:{5,7} | 智测:{6}",
+                                    string displayRow = string.Format("{0} [{1}] {2,8:F3} {3,8} | 买:{4,7} 卖:{5,7} | 智测:{6}",
                                         displayName,
                                         pureCode,
                                         current,

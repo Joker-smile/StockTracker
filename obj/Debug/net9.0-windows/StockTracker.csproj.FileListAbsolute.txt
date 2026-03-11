@@ -17,3 +17,4 @@ D:\wwwroot\StockTracker\obj\Debug\net9.0-windows\refint\StockTracker.dll
 D:\wwwroot\StockTracker\obj\Debug\net9.0-windows\StockTracker.pdb
 D:\wwwroot\StockTracker\obj\Debug\net9.0-windows\StockTracker.genruntimeconfig.cache
 D:\wwwroot\StockTracker\obj\Debug\net9.0-windows\ref\StockTracker.dll
+D:\wwwroot\StockTracker\obj\Debug\net9.0-windows\StockTracker.sourcelink.json
