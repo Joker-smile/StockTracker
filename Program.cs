@@ -1,6 +1,8 @@
 using Avalonia;
 using System;
+using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace StockTracker;
 
@@ -11,23 +13,70 @@ class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        const string appName = "StockTracker_SingleInstance_Mutex";
-        bool createdNew;
-        mutex = new Mutex(true, appName, out createdNew);
+        SetupExceptionHandling();
 
-        if (!createdNew)
+        try
         {
-            return;
-        }
+            const string appName = "StockTracker_SingleInstance_Mutex";
+            bool createdNew;
+            mutex = new Mutex(true, appName, out createdNew);
 
-        BuildAvaloniaApp()
-            .StartWithClassicDesktopLifetime(args);
+            if (!createdNew)
+            {
+                return;
+            }
+
+            BuildAvaloniaApp()
+                .StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception ex)
+        {
+            LogError("Fatal error in Main", ex);
+        }
+    }
+
+    private static void SetupExceptionHandling()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+        {
+            LogError("AppDomain UnhandledException", e.ExceptionObject as Exception);
+        };
+
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            LogError("TaskScheduler UnobservedTaskException", e.Exception);
+            e.SetObserved();
+        };
+    }
+
+    public static void LogError(string context, Exception? ex)
+    {
+        try
+        {
+            string logFile = Path.Combine(AppContext.BaseDirectory, "error_log.txt");
+            string message = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{context}]\r\n{ex?.ToString() ?? "Unknown Error"}\r\n----------------------------------------\r\n";
+            File.AppendAllText(logFile, message);
+        }
+        catch { }
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+
+        // 为保证最大兼容性，在所有 Windows 10/11 版本上统一使用软件渲染，避免任何可能的硬件加速死锁或花屏问题
+        if (OperatingSystem.IsWindows())
+        {
+            builder.With(new Win32PlatformOptions
+            {
+                RenderingMode = new[] { Win32RenderingMode.Software }
+            });
+        }
+
+        return builder;
+    }
 }
