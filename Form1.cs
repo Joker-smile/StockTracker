@@ -412,19 +412,60 @@ namespace StockTracker
                         return "[观察]弱势抵抗";
                     }
 
-                    // 7. General Trend Prediction
+                    // 7. General Trend Prediction (Optimized for A-share sentiment)
                     if (clearlyAbove || (nearMa5 && currentPercent > 0))
                     {
-                        status = "[看多]";
-                        if (ratio > 2.0) result = currentPercent > 3.0 ? "爆量主升" : "高位滞涨";
-                        else if (ratio < 0.6) result = currentPercent > 1.0 ? "缩量逼空" : "缩量洗盘";
-                        else result = currentPercent > 2.0 ? "多头掌控" : "震荡攀升";
+                        if (ratio > 2.0) 
+                        {
+                            if (currentPercent > 3.0) 
+                            {
+                                status = "[看多]";
+                                result = "爆量主升";
+                            }
+                            else 
+                            {
+                                // High volume but not rising much -> potential distribution
+                                status = "[观察]";
+                                result = "高位滞涨(防跳水)"; 
+                            }
+                        }
+                        else if (ratio < 0.6) 
+                        {
+                            if (currentPercent > 1.0)
+                            {
+                                status = "[看多]";
+                                result = "缩量逼空(控盘)";
+                            }
+                            else
+                            {
+                                // Low volume and barely moving -> washing out weak hands
+                                status = "[观察]";
+                                result = "缩量洗盘"; 
+                            }
+                        }
+                        else 
+                        {
+                            status = "[看多]";
+                            result = currentPercent > 2.0 ? "多头掌控" : "震荡攀升";
+                        }
                     }
                     else
                     {
                         status = currentPercent < -2.0 ? "[看空]" : "[观察]";
-                        if (ratio > 1.2) result = currentPercent < -3.0 ? "破位杀跌" : "低位抢筹";
-                        else result = currentPercent < -1.0 ? "阴跌不止" : "弱势震荡";
+                        if (ratio > 1.2) 
+                        {
+                            if (currentPercent < -3.0)
+                                result = "破位杀跌";
+                            else
+                                result = "放量承接"; // Replaced "低位抢筹" because slight drop with volume is just support, not yet a rush to buy
+                        }
+                        else 
+                        {
+                            if (currentPercent < -1.0)
+                                result = "阴跌不止";
+                            else
+                                result = "弱势震荡";
+                        }
                     }
                     return $"{status}{result}";
                 }
