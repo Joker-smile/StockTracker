@@ -1,4 +1,0 @@
-akshare<=1.15.55
-pandas
-requests
-tqdm

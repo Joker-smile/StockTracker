@@ -798,7 +798,7 @@
           }
         }
       },
-      "SkiaSharp.NativeAssets.macOS/2.88.7": {
+      "SkiaSharp.NativeAssets.macOS/2.88.8": {
         "type": "package",
         "compile": {
           "lib/net6.0/_._": {}
@@ -2281,7 +2281,7 @@
           "lib/net6.0/_._": {}
         }
       },
-      "SkiaSharp.NativeAssets.macOS/2.88.7": {
+      "SkiaSharp.NativeAssets.macOS/2.88.8": {
         "type": "package",
         "compile": {
           "lib/net6.0/_._": {}
@@ -4523,10 +4523,10 @@
         "skiasharp.nativeassets.linux.nuspec"
       ]
     },
-    "SkiaSharp.NativeAssets.macOS/2.88.7": {
-      "sha512": "3jNzco4VjcYPFNxR9aNWcgweFXbTSdM1VpNRzCS4X0i1A1OuNqcaulrAvmntNpujeWxHo9e6WGh6FN8Jf5+XhA==",
+    "SkiaSharp.NativeAssets.macOS/2.88.8": {
+      "sha512": "6Kn5TSkKlfyS6azWHF3Jk2sW5C4jCE5uSshM/5AbfFrR+5n6qM5XEnz9h4VaVl7LTxBvHvMkuPb/3bpbq0vxTw==",
       "type": "package",
-      "path": "skiasharp.nativeassets.macos/2.88.7",
+      "path": "skiasharp.nativeassets.macos/2.88.8",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
@@ -4545,7 +4545,7 @@
         "lib/netstandard1.3/_._",
         "lib/xamarinmac2.0/_._",
         "runtimes/osx/native/libSkiaSharp.dylib",
-        "skiasharp.nativeassets.macos.2.88.7.nupkg.sha512",
+        "skiasharp.nativeassets.macos.2.88.8.nupkg.sha512",
         "skiasharp.nativeassets.macos.nuspec"
       ]
     },
@@ -6505,6 +6505,7 @@
       "Avalonia.Themes.Fluent >= 11.0.10",
       "Microsoft.NET.ILLink.Tasks >= 9.0.3",
       "Newtonsoft.Json >= 13.0.4",
+      "SkiaSharp.NativeAssets.macOS >= 2.88.8",
       "System.Text.Encoding.CodePages >= 10.0.3"
     ]
   },
@@ -6587,6 +6588,10 @@
           "Newtonsoft.Json": {
             "target": "Package",
             "version": "[13.0.4, )"
+          },
+          "SkiaSharp.NativeAssets.macOS": {
+            "target": "Package",
+            "version": "[2.88.8, )"
           },
           "System.Text.Encoding.CodePages": {
             "target": "Package",

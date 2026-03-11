@@ -17,13 +17,18 @@ class Program
 
         try
         {
-            const string appName = "StockTracker_SingleInstance_Mutex";
-            bool createdNew;
-            mutex = new Mutex(true, appName, out createdNew);
-
-            if (!createdNew)
+            // Named Mutex only works reliably on Windows.
+            // On macOS/Linux, named mutexes can leave stale files and silently prevent launch.
+            if (OperatingSystem.IsWindows())
             {
-                return;
+                const string appName = "StockTracker_SingleInstance_Mutex";
+                bool createdNew;
+                mutex = new Mutex(true, appName, out createdNew);
+
+                if (!createdNew)
+                {
+                    return;
+                }
             }
 
             BuildAvaloniaApp()
@@ -53,9 +58,39 @@ class Program
     {
         try
         {
-            string logFile = Path.Combine(AppContext.BaseDirectory, "error_log.txt");
+            try 
+            {
+                // Try to write to the local directory first for true "green software" portability
+                string? exePath = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName);
+                string localFile = Path.Combine(exePath ?? AppContext.BaseDirectory, "error_log.txt");
+                string msg = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{context}]\r\n{ex?.ToString() ?? "Unknown Error"}\r\n----------------------------------------\r\n";
+                File.AppendAllText(localFile, msg);
+                return; // Success
+            }
+            catch (UnauthorizedAccessException) { }
+
+            // Fallback for strict permissions (macOS bundles, C:\Program Files, etc.)
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string logDir = Path.Combine(appData, "StockTracker");
+            if (!Directory.Exists(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+            
+            string logFile = Path.Combine(logDir, "error_log.txt");
             string message = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{context}]\r\n{ex?.ToString() ?? "Unknown Error"}\r\n----------------------------------------\r\n";
             File.AppendAllText(logFile, message);
+            
+            // In case of fatal crash on macOS, write to desktop as absolute fallback
+            if (!OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    string desktopLog = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "StockTracker_Crash.txt");
+                    File.AppendAllText(desktopLog, message);
+                }
+                catch { }
+            }
         }
         catch { }
     }

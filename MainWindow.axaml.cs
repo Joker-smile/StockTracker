@@ -35,7 +35,26 @@ public partial class MainWindow : Window
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
         string? exePath = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName);
-        _configFile = Path.Combine(exePath ?? AppContext.BaseDirectory, "stocks.txt");
+        
+        // Green Software preference: Try to put stocks.txt right next to the exe first
+        string localConfig = Path.Combine(exePath ?? AppContext.BaseDirectory, "stocks.txt");
+        try 
+        {
+            // Test if we have write access to the local directory
+            if (!File.Exists(localConfig)) File.WriteAllText(localConfig, "");
+            _configFile = localConfig;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Fallback for macOS / strict environments (e.g. C:\Program Files\)
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string configDir = Path.Combine(appData, "StockTracker");
+            if (!Directory.Exists(configDir))
+            {
+                try { Directory.CreateDirectory(configDir); } catch { }
+            }
+            _configFile = Path.Combine(configDir, "stocks.txt");
+        }
         
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("Referer", "http://finance.sina.com.cn/");
@@ -226,64 +245,277 @@ public partial class MainWindow : Window
 
         try
         {
-            string? exeDir = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName);
-            if (exeDir == null) return;
-            
-            // Resolve the path to screener.py (Assuming it's in StockScreener parallel to publish or up one level)
-            // StockTracker/publish/win-x64 -> wait, the dev dir vs publish dir
-            // C# _configFile is Path.Combine(exePath ?? AppContext.BaseDirectory, "stocks.txt")
-            // In release, it's alongside the exe. 
-            // The StockScreener is at d:\wwwroot\StockTracker\StockScreener\screener.py
-            string projectRoot = Path.GetFullPath(Path.Combine(exeDir, "..", "..", ".."));
-            // Alternatively if published, it might just be 2 levels up. We can just search for it or use absolute if needed, 
-            // but relying on relative path in root:
-            string screenerPath = Path.Combine(exeDir, "..", "..", "StockScreener", "screener.py");
-            if (!File.Exists(screenerPath)) 
-            {
-                // Fallback for dev mode
-                screenerPath = Path.Combine(projectRoot, "StockScreener", "screener.py");
-            }
-            if (!File.Exists(screenerPath))
-            {
-                // Absolute fallback just in case
-                screenerPath = @"d:\wwwroot\StockTracker\StockScreener\screener.py";
-            }
-
-            var psi = new ProcessStartInfo();
-            if (OperatingSystem.IsWindows())
-            {
-                psi.FileName = "python";
-            }
-            else
-            {
-                psi.FileName = "python3";
-            }
-            
-            psi.Arguments = $"\"{screenerPath}\" \"{_configFile}\"";
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-
-            var process = Process.Start(psi);
-            if (process != null)
-            {
-                // Wait for it to finish asynchronously so we don't freeze the UI 
-                await process.WaitForExitAsync();
-            }
-
-            // Ensure the loading UI shows for at least a few seconds to prevent flashing,
-            // even if the script fails instantly or finds no new stocks.
-            await Task.Delay(3000);
+            var container = this.FindControl<Grid>("StockContainer");
+            await RunNativeScreener(container);
         }
-        catch { }
+        catch (Exception ex) 
+        { 
+            Program.LogError("AutoPickItem_Click Exception", ex);
+        }
         finally
         {
             _isScreenerRunning = false;
-            // FileSystemWatcher should have picked up the changes and reloaded,
-            // but just in case it didn't write anything (no new stocks), restore UI:
+            // Reload config and pricing after the native screener finishes
             Dispatcher.UIThread.Post(async () => {
                 LoadConfig();
                 await UpdatePrices();
             });
+        }
+    }
+
+    private async Task RunNativeScreener(Grid? container)
+    {
+        void UpdateLoadingText(string msg)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (container != null && container.Children.Count > 0 && container.Children[0] is TextBlock tb)
+                {
+                    tb.Text = msg;
+                }
+            });
+        }
+
+        UpdateLoadingText("⏳ 正在获取A股全市场实时数据...");
+        
+        // 1. Get Base Stocks
+        var baseStocks = await GetBaseStocksAsync();
+        if (baseStocks.Count == 0)
+        {
+            UpdateLoadingText("❌ 基础池获取失败，请检查网络");
+            await Task.Delay(2000);
+            return;
+        }
+
+        // Sort by turnover descending and take top 300 to match python logic
+        var processList = baseStocks.OrderByDescending(s => s.Turnover).Take(300).ToList();
+        
+        var passedStocks = new List<(string Code, string Name, double Price, double Ma20, double Ma200, double Pe, double MarketCap, string Concepts)>();
+        
+        int tested = 0;
+        foreach (var stock in processList)
+        {
+            tested++;
+            if (tested % 10 == 0) 
+            {
+                UpdateLoadingText($"⏳ K线深度体检中 [{tested}/{processList.Count}]... 已发现 {passedStocks.Count} 只");
+            }
+
+            try
+            {
+                var techResult = await CheckTechnicalAndPegAsync(stock.Code, stock.Name, stock.Price, stock.Pe, stock.MarketCap);
+                if (techResult.HasValue)
+                {
+                    string concepts = await GetStockConceptsAsync(stock.Code);
+                    passedStocks.Add((stock.Code, stock.Name, stock.Price, techResult.Value.Ma20, techResult.Value.Ma200, stock.Pe, stock.MarketCap, concepts));
+                }
+                await Task.Delay(20); // Friendly request throttling matching Python's time.sleep(0.02)
+            }
+            catch (Exception ex)
+            {
+                Program.LogError($"Screener loop Error for {stock.Code} {stock.Name}:", ex);
+            }
+        }
+
+        if (passedStocks.Count > 0)
+        {
+            UpdateLoadingText($"✅ 筛选完毕！找到 {passedStocks.Count} 只强势标的。正在注入...");
+            await Task.Delay(1000);
+
+            // Sort by market cap ascending (smallest first)
+            passedStocks = passedStocks.OrderBy(s => s.MarketCap).ToList();
+            
+            bool anyNew = false;
+            foreach (var s in passedStocks)
+            {
+                if (!_stocks.Contains(s.Code))
+                {
+                    _stocks.Add(s.Code);
+                    anyNew = true;
+                }
+            }
+            
+            if (anyNew)
+            {
+                SaveConfig();
+            }
+        }
+        else
+        {
+            UpdateLoadingText("⚠️ 盘面极度弱势或无符合条件的标的，空仓观望");
+            await Task.Delay(2000);
+        }
+    }
+
+    private class StockBasic
+    {
+        public string Code { get; set; } = "";
+        public string Name { get; set; } = "";
+        public double Price { get; set; }
+        public double Turnover { get; set; }
+        public double Pe { get; set; }
+        public double MarketCap { get; set; }
+    }
+
+    private async Task<List<StockBasic>> GetBaseStocksAsync()
+    {
+        try
+        {
+            string url = "http://82.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12,f14,f2,f8,f9,f20";
+            string jsonStr = await _httpClient!.GetStringAsync(url);
+            var root = JObject.Parse(jsonStr);
+            var items = root["data"]?["diff"] as JArray;
+            
+            if (items == null) return new List<StockBasic>();
+
+            var list = new List<StockBasic>();
+            foreach (var item in items)
+            {
+                string name = item["f14"]?.ToString() ?? "";
+                if (name.Contains("ST") || name.Contains("退")) continue;
+
+                if (double.TryParse(item["f2"]?.ToString(), out double price) && price > 0 &&
+                    double.TryParse(item["f8"]?.ToString(), out double turnover) &&
+                    double.TryParse(item["f9"]?.ToString(), out double pe) &&
+                    double.TryParse(item["f20"]?.ToString(), out double marketCap))
+                {
+                    // Core Filter 1: PE > 0 && PE < 40
+                    if (pe <= 0 || pe >= 40) continue;
+                    
+                    // Core Filter 2: MarketCap 20B ~ 500B
+                    if (marketCap <= 2000000000 || marketCap >= 50000000000) continue;
+
+                    // Core Filter 3: Turnover > 1.2%
+                    if (turnover <= 1.2) continue;
+
+                    list.Add(new StockBasic
+                    {
+                        Code = item["f12"]?.ToString() ?? "",
+                        Name = name,
+                        Price = price,
+                        Turnover = turnover,
+                        Pe = pe,
+                        MarketCap = marketCap
+                    });
+                }
+            }
+            return list;
+        }
+        catch (Exception ex) 
+        { 
+            Program.LogError("GetBaseStocksAsync API Failure", ex);
+            return new List<StockBasic>(); 
+        }
+    }
+
+    private async Task<(double Ma20, double Ma200)?> CheckTechnicalAndPegAsync(string symbol, string name, double currentPrice, double pe, double marketCap)
+    {
+        try
+        {
+            string secid = symbol.StartsWith("6") ? "1." + symbol : "0." + symbol;
+            string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&ut=7eea3edcaed734bea9cbbc2440b282fb&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=250";
+            
+            string jsonStr = await _httpClient!.GetStringAsync(url);
+            var root = JObject.Parse(jsonStr);
+            var klines = root["data"]?["klines"] as JArray;
+
+            if (klines == null || klines.Count < 200) return null; // Listed < 1 year
+
+            var closes = new List<double>();
+            var vols = new List<double>();
+            var pcts = new List<double>();
+            var turnovers = new List<double>();
+
+            foreach (var k in klines)
+            {
+                var parts = k.ToString().Split(',');
+                if (parts.Length >= 11)
+                {
+                    closes.Add(double.Parse(parts[2]));
+                    vols.Add(double.Parse(parts[5]));
+                    pcts.Add(double.Parse(parts[8]));
+                    double t = 0;
+                    double.TryParse(parts[10], out t);
+                    turnovers.Add(t);
+                }
+            }
+
+            int count = closes.Count;
+            double ma200 = closes.Skip(count - 200).Average();
+            double ma20 = closes.Skip(count - 20).Average();
+
+            // A: Above MA200
+            if (currentPrice < ma200) return null;
+
+            // B: Above MA20, but deviation < 15%
+            if (currentPrice < ma20 || (currentPrice / ma20 - 1) > 0.15) return null;
+
+            // C: No recent crash
+            var recent10Pct = pcts.Skip(count - 10).ToList();
+            var recent10Vol = vols.Skip(count - 10).ToList();
+            
+            var ma20Volumes = new List<double>();
+            for (int i = count - 10; i < count; i++)
+            {
+                ma20Volumes.Add(vols.Skip(i - 19).Take(20).Average());
+            }
+
+            for (int i = 0; i < 10; i++)
+            {
+                if (recent10Pct[i] < -5.0 && recent10Vol[i] > ma20Volumes[i] * 1.5)
+                {
+                    return null; // volume expanded crash found
+                }
+            }
+
+            // D: Turnover activity (max > 5% or mean > 3% in last 5 days)
+            var recent5T = turnovers.Skip(count - 5).ToList();
+            if (recent5T.Max() <= 5.0 && recent5T.Average() <= 3.0) return null;
+
+            return (ma20, ma200);
+        }
+        catch (Exception ex)
+        { 
+            Program.LogError($"CheckTechnicalAndPegAsync API Failure for {symbol}", ex);
+            return null; 
+        }
+    }
+
+    private async Task<string> GetStockConceptsAsync(string symbol)
+    {
+        try
+        {
+            string secucode = (symbol.StartsWith("0") || symbol.StartsWith("3")) ? $"{symbol}.SZ" : $"{symbol}.SH";
+            string url = $"https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_F10_CORETHEME_BOARDTYPE&columns=BOARD_NAME&filter=(SECUCODE=%22{secucode}%22)&pageNumber=1&pageSize=50";
+            
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("User-Agent", "Mozilla/5.0");
+            
+            var response = await _httpClient!.SendAsync(request);
+            string jsonStr = await response.Content.ReadAsStringAsync();
+            var root = JObject.Parse(jsonStr);
+            
+            var data = root["result"]?["data"] as JArray;
+            if (data == null) return "无";
+
+            var blacklist = new[] { "融资融券", "深股通", "沪股通", "标普走势", "MSCI中国", "富时罗素", " HS300", "深证100" };
+            var tags = new List<string>();
+
+            foreach (var item in data)
+            {
+                string boardName = item["BOARD_NAME"]?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(boardName) && !blacklist.Any(b => boardName.Contains(b)))
+                {
+                    tags.Add(boardName);
+                }
+            }
+
+            return tags.Count > 0 ? string.Join(",", tags.Take(4)) : "无";
+        }
+        catch (Exception ex) 
+        { 
+            Program.LogError($"GetStockConceptsAsync API Failure for {symbol}", ex);
+            return ""; 
         }
     }
 

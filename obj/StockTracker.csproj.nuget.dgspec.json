@@ -80,6 +80,10 @@
               "target": "Package",
               "version": "[13.0.4, )"
             },
+            "SkiaSharp.NativeAssets.macOS": {
+              "target": "Package",
+              "version": "[2.88.8, )"
+            },
             "System.Text.Encoding.CodePages": {
               "target": "Package",
               "version": "[10.0.3, )"
