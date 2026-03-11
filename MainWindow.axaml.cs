@@ -358,7 +358,7 @@ public partial class MainWindow : Window
                 {
                     status = currentPercent < -2.0 ? "[看空]" : "[观察]";
                     if (ratio > 1.2) result = currentPercent < -3.0 ? "破位杀跌" : "放量承接";
-                    else result = currentPercent < -1.0 ? "阴跌不止" : "弱势震震荡";
+                    else result = currentPercent < -1.0 ? "阴跌不止" : "弱势震荡";
                 }
                 return $"{status}{result}";
             }
