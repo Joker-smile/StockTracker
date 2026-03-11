@@ -61,7 +61,7 @@ _ReSharper*/
 *.publishproj
 
 # Code coverage
-*.coverage
+*.coveragegit reset --soft origin/master
 *.coveragexml
 
 # Setup Project
@@ -69,3 +69,4 @@ _ReSharper*/
 
 # Ignore Windows Forms resx backup files
 *.resx.bak
+.idea
