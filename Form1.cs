@@ -124,7 +124,9 @@ namespace StockTracker
             // Context Menu (Move to container for right click)
             _contextMenu = new ContextMenuStrip();
             _contextMenu.Items.Add("添加股票", null, AddStockItem_Click);
-            _contextMenu.Items.Add("清空列表", null, RemoveStockItem_Click);
+            _contextMenu.Items.Add("删除此股票", null, DeleteStock_Click);
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add("清空全部", null, RemoveStockItem_Click);
             _stockContainer.ContextMenuStrip = _contextMenu;
             _header.ContextMenuStrip = _contextMenu;
 
@@ -189,11 +191,24 @@ namespace StockTracker
             return true;
         }
 
+        private void DeleteStock_Click(object? sender, EventArgs e)
+        {
+            if (_contextMenu?.SourceControl is Label lbl && lbl.Tag is string code)
+            {
+                _stocks.Remove(code);
+                SaveConfig();
+                _ = UpdatePrices();
+            }
+        }
+
         private void RemoveStockItem_Click(object? sender, EventArgs e)
         {
-            _stocks.Clear();
-            SaveConfig();
-            UpdateText("暂无自选，请右键添加");
+            if (MessageBox.Show("确定要清空所有自选吗？", "提示", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                _stocks.Clear();
+                SaveConfig();
+                UpdateText("暂无自选，请右键添加");
+            }
         }
 
         private void LoadConfig()
@@ -447,10 +462,13 @@ namespace StockTracker
                 string response = gb2312.GetString(bytes);
 
                 var lines = response.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                List<string> displayTexts = new List<string>();
+                List<(string Text, string Code)> displayData = new List<(string, string)>();
 
-                foreach (var line in lines)
+                // Map results back to original codes to preserve Tag info
+                for (int i = 0; i < lines.Length && i < _stocks.Count; i++)
                 {
+                    string line = lines[i];
+                    string originalCode = _stocks[i];
                     int start = line.IndexOf("=\"");
                     if (start != -1)
                     {
@@ -510,21 +528,21 @@ namespace StockTracker
                                         ask,
                                         pred);
                                     
-                                    displayTexts.Add(displayRow);
+                                    displayData.Add((displayRow, originalCode));
                                 }
                             }
                         }
                     }
                 }
 
-                if (displayTexts.Count > 0)
+                if (displayData.Count > 0)
                 {
                     if (_stockContainer != null)
                     {
                         if (_stockContainer.InvokeRequired)
-                            _stockContainer.Invoke(new Action(() => UpdateRows(displayTexts)));
+                            _stockContainer.Invoke(new Action(() => UpdateRowsStructured(displayData)));
                         else
-                            UpdateRows(displayTexts);
+                            UpdateRowsStructured(displayData);
                     }
                 }
             }
@@ -534,18 +552,19 @@ namespace StockTracker
             }
         }
 
-        private void UpdateRows(List<string> rows)
+        private void UpdateRowsStructured(List<(string Text, string Code)> displayData)
         {
             if (_stockContainer == null) return;
 
             _stockContainer.SuspendLayout();
             _stockContainer.Controls.Clear();
 
-            foreach (var row in rows)
+            foreach (var item in displayData)
             {
                 Label lbl = new Label
                 {
-                    Text = row,
+                    Text = item.Text,
+                    Tag = item.Code,
                     AutoSize = true,
                     ForeColor = Color.LightGray,
                     Font = new Font("NSimSun", 9F, FontStyle.Regular, GraphicsUnit.Point),
@@ -575,6 +594,14 @@ namespace StockTracker
             
             this.Width = Math.Max(300, totalWidth + 20);
             this.Height = totalHeight;
+        }
+
+        private void UpdateRows(List<string> rows)
+        {
+            // Convert to structured for compatibility
+            var structured = new List<(string, string)>();
+            foreach(var r in rows) structured.Add((r, ""));
+            UpdateRowsStructured(structured);
         }
 
         private void UpdateText(string text)
