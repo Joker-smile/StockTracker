@@ -1338,7 +1338,7 @@
         }
       }
     },
-    "net9.0/osx-x64": {
+    "net9.0/osx-arm64": {
       "Avalonia/11.0.10": {
         "type": "package",
         "dependencies": {
@@ -6606,15 +6606,15 @@
         "warn": true,
         "downloadDependencies": [
           {
-            "name": "Microsoft.AspNetCore.App.Runtime.osx-x64",
+            "name": "Microsoft.AspNetCore.App.Runtime.osx-arm64",
             "version": "[9.0.3, 9.0.3]"
           },
           {
-            "name": "Microsoft.NETCore.App.Host.osx-x64",
+            "name": "Microsoft.NETCore.App.Host.osx-arm64",
             "version": "[9.0.3, 9.0.3]"
           },
           {
-            "name": "Microsoft.NETCore.App.Runtime.osx-x64",
+            "name": "Microsoft.NETCore.App.Runtime.osx-arm64",
             "version": "[9.0.3, 9.0.3]"
           }
         ],
@@ -6627,7 +6627,7 @@
       }
     },
     "runtimes": {
-      "osx-x64": {
+      "osx-arm64": {
         "#import": []
       }
     }

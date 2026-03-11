@@ -27,14 +27,25 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+echo Publishing for win-x64...
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish\win-x64
+
+echo.
+echo Publishing for osx-x64...
+dotnet publish -c Release -r osx-x64 --self-contained true -p:PublishSingleFile=true -o publish\osx-x64
+
+echo.
+echo Publishing for osx-arm64...
+dotnet publish -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=true -o publish\osx-arm64
+
+echo.
 echo ============================================
-echo StockTracker project initialized successfully!
+echo StockTracker project initialized and published successfully!
 echo ============================================
 echo.
 echo Available commands:
 echo   dotnet run              - Run the application
 echo   dotnet build            - Build the project
-echo   dotnet publish -c Release -o publish  - Publish release build
 echo.
 echo Project location: %CD%
 echo.

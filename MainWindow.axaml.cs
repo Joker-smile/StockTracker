@@ -13,6 +13,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace StockTracker;
 
@@ -23,6 +24,8 @@ public partial class MainWindow : Window
     private readonly string _configFile;
     private HttpClient? _httpClient;
     private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, DateTime LastUpdated)> _klineCache = new();
+    private FileSystemWatcher? _watcher;
+    private bool _isScreenerRunning = false;
 
     public MainWindow()
     {
@@ -50,6 +53,37 @@ public partial class MainWindow : Window
         _ = UpdatePrices();
 
         SetupWindowEvents();
+        SetupWatcher();
+    }
+
+    private void SetupWatcher()
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(_configFile);
+            string? file = Path.GetFileName(_configFile);
+            if (!string.IsNullOrEmpty(dir) && !string.IsNullOrEmpty(file))
+            {
+                _watcher = new FileSystemWatcher(dir, file)
+                {
+                    NotifyFilter = NotifyFilters.LastWrite,
+                    EnableRaisingEvents = true
+                };
+                _watcher.Changed += _watcher_Changed;
+            }
+        }
+        catch { }
+    }
+
+    private void _watcher_Changed(object sender, FileSystemEventArgs e)
+    {
+        // Add a small delay/debounce to avoid file lock issues when python is writing
+        Dispatcher.UIThread.Post(async () =>
+        {
+            await Task.Delay(500); // 500ms debounce
+            LoadConfig();
+            await UpdatePrices();
+        });
     }
 
     private void SetupWindowEvents()
@@ -86,6 +120,12 @@ public partial class MainWindow : Window
         var addItem = new MenuItem { Header = "添加股票" };
         addItem.Click += AddStockItem_Click;
         menu.Items.Add(addItem);
+        
+        var autoPickItem = new MenuItem { Header = "自动选股" };
+        autoPickItem.Click += AutoPickItem_Click;
+        menu.Items.Add(autoPickItem);
+        
+        menu.Items.Add(new Separator());
 
         if (!string.IsNullOrEmpty(targetCode))
         {
@@ -153,6 +193,98 @@ public partial class MainWindow : Window
         _stocks.Clear();
         SaveConfig();
         await UpdatePrices();
+    }
+
+    private async void AutoPickItem_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_isScreenerRunning) return;
+        _isScreenerRunning = true;
+        
+        // Show loading state by replacing all rows with a single loading message
+        Dispatcher.UIThread.Invoke(() =>
+        {
+            var container = this.FindControl<Grid>("StockContainer");
+            if (container != null)
+            {
+                container.Children.Clear();
+                container.RowDefinitions.Clear();
+                container.ColumnDefinitions.Clear();
+                
+                var tb = new TextBlock
+                {
+                    Text = "⏳ 正在全网寻妖(约需15秒)...",
+                    Foreground = Brush.Parse("#FFFFCC00"), // Highlighted yellow
+                    FontSize = 12,
+                    FontFamily = new FontFamily("Courier New"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 5)
+                };
+                container.Children.Add(tb);
+            }
+        });
+
+        try
+        {
+            string? exeDir = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName);
+            if (exeDir == null) return;
+            
+            // Resolve the path to screener.py (Assuming it's in StockScreener parallel to publish or up one level)
+            // StockTracker/publish/win-x64 -> wait, the dev dir vs publish dir
+            // C# _configFile is Path.Combine(exePath ?? AppContext.BaseDirectory, "stocks.txt")
+            // In release, it's alongside the exe. 
+            // The StockScreener is at d:\wwwroot\StockTracker\StockScreener\screener.py
+            string projectRoot = Path.GetFullPath(Path.Combine(exeDir, "..", "..", ".."));
+            // Alternatively if published, it might just be 2 levels up. We can just search for it or use absolute if needed, 
+            // but relying on relative path in root:
+            string screenerPath = Path.Combine(exeDir, "..", "..", "StockScreener", "screener.py");
+            if (!File.Exists(screenerPath)) 
+            {
+                // Fallback for dev mode
+                screenerPath = Path.Combine(projectRoot, "StockScreener", "screener.py");
+            }
+            if (!File.Exists(screenerPath))
+            {
+                // Absolute fallback just in case
+                screenerPath = @"d:\wwwroot\StockTracker\StockScreener\screener.py";
+            }
+
+            var psi = new ProcessStartInfo();
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "python";
+            }
+            else
+            {
+                psi.FileName = "python3";
+            }
+            
+            psi.Arguments = $"\"{screenerPath}\" \"{_configFile}\"";
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+
+            var process = Process.Start(psi);
+            if (process != null)
+            {
+                // Wait for it to finish asynchronously so we don't freeze the UI 
+                await process.WaitForExitAsync();
+            }
+
+            // Ensure the loading UI shows for at least a few seconds to prevent flashing,
+            // even if the script fails instantly or finds no new stocks.
+            await Task.Delay(3000);
+        }
+        catch { }
+        finally
+        {
+            _isScreenerRunning = false;
+            // FileSystemWatcher should have picked up the changes and reloaded,
+            // but just in case it didn't write anything (no new stocks), restore UI:
+            Dispatcher.UIThread.Post(async () => {
+                LoadConfig();
+                await UpdatePrices();
+            });
+        }
     }
 
     private void LoadConfig()
