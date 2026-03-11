@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StockTracker.MainWindow"
+        Title="StockTracker"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="False"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual">
+
+    <Border Background="#99000000" CornerRadius="4" Padding="0">
+        <StackPanel>
+            <!-- Header bar with min/close buttons -->
+            <Border Name="HeaderBar" Background="#FF282828" Height="12" Padding="2,0">
+                <Grid>
+                    <TextBlock Text="StockTracker" Foreground="#FF666666" FontSize="8"
+                               VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
+                        <Button Name="BtnMin" Content="—" FontSize="7" Padding="2,0"
+                                Background="Transparent" Foreground="#FF666666"
+                                BorderThickness="0" VerticalAlignment="Center"
+                                Click="BtnMin_Click"/>
+                        <Button Name="BtnClose" Content="×" FontSize="9" Padding="2,0"
+                                Background="Transparent" Foreground="#FF666666"
+                                BorderThickness="0" VerticalAlignment="Center"
+                                Click="BtnClose_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Stock list container -->
+            <Grid Name="StockContainer" Margin="4,1,4,3">
+                <TextBlock Name="PlaceholderText" Text="右键添加股票"
+                           Foreground="#FFB0B0B0" FontSize="12"
+                           FontFamily="Courier New" Margin="0,1"/>
+            </Grid>
+        </StackPanel>
+    </Border>
+</Window>

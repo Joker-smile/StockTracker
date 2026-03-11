@@ -1,2 +1,0 @@
-D:\wwwroot\StockTracker\publish\StockTracker.pdb
-D:\wwwroot\StockTracker\publish\StockTracker.exe
