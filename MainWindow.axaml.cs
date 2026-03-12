@@ -964,7 +964,7 @@ public partial class MainWindow : Window
                     {
                         status = "[趋势]多头占优";
                     }
-                    else status = "[观察]均线支撑";
+                    else status = "[趋势]均线支撑";
                 }
                 else // 空头/整理
                 {
