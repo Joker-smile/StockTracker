@@ -714,7 +714,7 @@
           "lib/netstandard1.3/Microsoft.CSharp.dll": {}
         }
       },
-      "Microsoft.NET.ILLink.Tasks/9.0.14": {
+      "Microsoft.NET.ILLink.Tasks/9.0.3": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
@@ -1338,7 +1338,7 @@
         }
       }
     },
-    "net9.0/osx-x64": {
+    "net9.0/osx-arm64": {
       "Avalonia/11.0.10": {
         "type": "package",
         "dependencies": {
@@ -1999,7 +1999,7 @@
           "lib/netstandard1.3/Microsoft.CSharp.dll": {}
         }
       },
-      "Microsoft.NET.ILLink.Tasks/9.0.14": {
+      "Microsoft.NET.ILLink.Tasks/9.0.3": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
@@ -3783,10 +3783,10 @@
         "ref/xamarinwatchos10/_._"
       ]
     },
-    "Microsoft.NET.ILLink.Tasks/9.0.14": {
-      "sha512": "+MeWjj5sGq6Oj/l0E9RPMgXDyCIPxczzCbGuvuVTZFEGiy2S/atsfoAoKUnkEin/GeGpN+HenCzRmiQKSc99eQ==",
+    "Microsoft.NET.ILLink.Tasks/9.0.3": {
+      "sha512": "1rqGTfubVg0qj2PsK6esyq3PIxtYJYrN3LsYUV9RrvH3anmt3fT3ozYdAZZH4U8JU/pt5pPIUk8NBSu26wtekA==",
       "type": "package",
-      "path": "microsoft.net.illink.tasks/9.0.14",
+      "path": "microsoft.net.illink.tasks/9.0.3",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -3800,7 +3800,7 @@
         "build/Microsoft.NET.ILLink.Analyzers.props",
         "build/Microsoft.NET.ILLink.Tasks.props",
         "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.9.0.14.nupkg.sha512",
+        "microsoft.net.illink.tasks.9.0.3.nupkg.sha512",
         "microsoft.net.illink.tasks.nuspec",
         "tools/net472/ILLink.Tasks.dll",
         "tools/net472/ILLink.Tasks.dll.config",
@@ -6503,31 +6503,38 @@
       "Avalonia.Diagnostics >= 11.0.10",
       "Avalonia.Fonts.Inter >= 11.0.10",
       "Avalonia.Themes.Fluent >= 11.0.10",
-      "Microsoft.NET.ILLink.Tasks >= 9.0.14",
+      "Microsoft.NET.ILLink.Tasks >= 9.0.3",
       "Newtonsoft.Json >= 13.0.4",
       "SkiaSharp.NativeAssets.macOS >= 2.88.8",
       "System.Text.Encoding.CodePages >= 10.0.3"
     ]
   },
   "packageFolders": {
-    "/Users/youliangli/.nuget/packages/": {}
+    "C:\\Users\\Administrator\\.nuget\\packages\\": {},
+    "D:\\vs_sdk\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/youliangli/code/StockTracker/StockTracker.csproj",
+      "projectUniqueName": "D:\\wwwroot\\StockTracker\\StockTracker.csproj",
       "projectName": "StockTracker",
-      "projectPath": "/Users/youliangli/code/StockTracker/StockTracker.csproj",
-      "packagesPath": "/Users/youliangli/.nuget/packages/",
-      "outputPath": "/Users/youliangli/code/StockTracker/obj/",
+      "projectPath": "D:\\wwwroot\\StockTracker\\StockTracker.csproj",
+      "packagesPath": "C:\\Users\\Administrator\\.nuget\\packages\\",
+      "outputPath": "D:\\wwwroot\\StockTracker\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "D:\\vs_sdk\\NuGetPackages"
+      ],
       "configFilePaths": [
-        "/Users/youliangli/.nuget/NuGet/NuGet.Config"
+        "C:\\Users\\Administrator\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
       ],
       "sources": {
+        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -6546,7 +6553,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.300"
+      "SdkAnalysisLevel": "9.0.200"
     },
     "frameworks": {
       "net9.0": {
@@ -6575,7 +6582,7 @@
           "Microsoft.NET.ILLink.Tasks": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[9.0.14, )",
+            "version": "[9.0.3, )",
             "autoReferenced": true
           },
           "Newtonsoft.Json": {
@@ -6604,12 +6611,16 @@
         "warn": true,
         "downloadDependencies": [
           {
-            "name": "Microsoft.AspNetCore.App.Runtime.osx-x64",
-            "version": "[9.0.14, 9.0.14]"
+            "name": "Microsoft.AspNetCore.App.Runtime.osx-arm64",
+            "version": "[9.0.3, 9.0.3]"
           },
           {
-            "name": "Microsoft.NETCore.App.Runtime.osx-x64",
-            "version": "[9.0.14, 9.0.14]"
+            "name": "Microsoft.NETCore.App.Host.osx-arm64",
+            "version": "[9.0.3, 9.0.3]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Runtime.osx-arm64",
+            "version": "[9.0.3, 9.0.3]"
           }
         ],
         "frameworkReferences": {
@@ -6617,11 +6628,11 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/9.0.312/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.201/PortableRuntimeIdentifierGraph.json"
       }
     },
     "runtimes": {
-      "osx-x64": {
+      "osx-arm64": {
         "#import": []
       }
     }
