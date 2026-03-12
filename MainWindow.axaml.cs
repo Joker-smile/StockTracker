@@ -564,10 +564,21 @@ public partial class MainWindow : Window
 
             // B: 连续下跌过滤（避免选入"死猫跳"）
             var recent5Pct = pcts.Skip(count - 5).ToList();
-            double recent5DaySum = recent5Pct.Sum();
-            if (recent5DaySum < -8.0) return null; // 连续下跌超过8%，直接排除
 
-            // C: 买点逻辑：三种最佳买点
+            // 检查连续下跌天数（比累计跌幅更准确）
+            int consecutiveDownDays = 0;
+            foreach (var pct in recent5Pct)
+            {
+                if (pct < 0) consecutiveDownDays++;
+                else break;
+            }
+            if (consecutiveDownDays >= 4) return null; // 连续4天下跌，直接排除
+
+            // 同时检查累计跌幅（双重保险）
+            double recent5DaySum = recent5Pct.Sum();
+            if (recent5DaySum < -10.0) return null; // 5天累计跌幅超过10%，直接排除
+
+            // C: 买点逻辑：重新设计为完全互斥（修复重叠问题）
             string buyPoint = "";
             bool isValidBuyPoint = false;
 
@@ -576,30 +587,26 @@ public partial class MainWindow : Window
             double lastPct = recent5Pct.Last();
             double lastVol = recent5Vol.Last();
 
-            // 买点1: 回踩买点（最安全）
-            // 股价在 MA20 附近（±3%）且缩量
-            if (Math.Abs(ma20Deviation) <= 3 && lastVol < avgVol * 0.9)
+            // 买点3: 超跌反弹（高风险）- 跌破MA20后大阳反包
+            if (ma20Deviation < -3 && lastPct > 3 && lastVol > avgVol * 1.5)
+            {
+                buyPoint = "超跌反弹";
+                isValidBuyPoint = true;
+            }
+            // 买点1: 回踩买点（最安全）- MA20附近且缩量
+            else if (Math.Abs(ma20Deviation) <= 3 && lastVol < avgVol * 0.9)
             {
                 buyPoint = "回踩买点";
                 isValidBuyPoint = true;
             }
-            // 买点2: 突破买点（激进）
-            // 刚突破 MA20 不远（3%-10%）且放量上涨
+            // 买点2: 突破买点（激进）- 刚突破MA20不远且放量
             else if (ma20Deviation > 3 && ma20Deviation <= 10 && lastPct > 2 && lastVol > avgVol * 1.3)
             {
                 buyPoint = "突破买点";
                 isValidBuyPoint = true;
             }
-            // 买点3: 超跌反弹（高风险高收益）
-            // 跌破 MA20 后大阳线反包（涨幅>3%，放量）
-            else if (ma20Deviation < -3 && lastPct > 3 && lastVol > avgVol * 1.5)
-            {
-                buyPoint = "超跌反弹";
-                isValidBuyPoint = true;
-            }
-            // 买点4: 强势多头（提高门槛，避免选入微涨股）
-            // 在 MA20 上方且乖离不大（< 10%），且今日涨幅至少1%
-            else if (ma20Deviation > 0 && ma20Deviation <= 10 && lastPct > 1.0)
+            // 买点4: 多头持有（稳健）- MA20上方0-3%且今日涨>1%
+            else if (ma20Deviation > 0 && ma20Deviation <= 3 && lastPct > 1.0)
             {
                 buyPoint = "多头持有";
                 isValidBuyPoint = true;
@@ -821,21 +828,19 @@ public partial class MainWindow : Window
                 double avgVolume = totalVolume / count;
                 double ma5 = (historicalCloseSum + currentPrice) / (count + 1);
 
-                // 计算MA20（需要重新获取K线数据）
+                // 计算MA20（正确方法：使用所有历史数据的平均值）
                 double ma20 = ma5; // 默认值
-                try
+                if (count >= 20)
                 {
-                    // 获取最近20个交易日的收盘价计算MA20
-                    if (count >= 20)
-                    {
-                        // historicalCloseSum是所有K线的总和
-                        // 我们需要最后20个K线的平均值
-                        // 由于缓存中存储的是总和，我们需要计算最后20个的平均值
-                        // 简化：假设recentTrend中的数据包含了足够的信息
-                        ma20 = historicalCloseSum / count; // 简化：使用所有数据的平均值
-                    }
+                    // count是20，historicalCloseSum是20天的收盘价总和
+                    // MA20 = 20天收盘价总和 / 20
+                    ma20 = historicalCloseSum / count;
                 }
-                catch { ma20 = ma5; } // 失败时使用ma5作为备选
+                else if (count > 0)
+                {
+                    // 如果数据不足20天，使用现有数据的平均值
+                    ma20 = historicalCloseSum / count;
+                }
 
                 double rawRatio = avgVolume > 0 ? (currentVolShares / avgVolume) : 1;
                 
@@ -872,12 +877,22 @@ public partial class MainWindow : Window
                     double openGap = (open - prevClose) / prevClose * 100;
                     string gapSign = openGap >= 0 ? "+" : "";
 
-                    if (openGap > 3.0)
-                        return $"[竞价]大幅高开{gapSign}{openGap:F1}%(防低走)";
-                    else if (openGap < -2.0)
-                        return $"[竞价]大幅低开{gapSign}{openGap:F1}%(看承接)";
+                    // 区分竞价初期和末期
+                    if (now <= new TimeSpan(9, 20, 0))
+                    {
+                        // 9:15-9:20: 可以撤单，可能有虚假申报
+                        return $"[竞价初期]{gapSign}{openGap:F1}%(可能虚假)";
+                    }
                     else
-                        return $"[竞价]平开{gapSign}{openGap:F1}%";
+                    {
+                        // 9:20-9:25: 不能撤单，真实意图
+                        if (openGap > 3.0)
+                            return $"[竞价末期]大幅高开{gapSign}{openGap:F1}%(防低走)";
+                        else if (openGap < -2.0)
+                            return $"[竞价末期]大幅低开{gapSign}{openGap:F1}%(看承接)";
+                        else
+                            return $"[竞价末期]平开{gapSign}{openGap:F1}%";
+                    }
                 }
 
                 // 开盘关键期（9:30-10:00）
