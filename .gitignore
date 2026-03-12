@@ -70,3 +70,4 @@ _ReSharper*/
 # Ignore Windows Forms resx backup files
 *.resx.bak
 .idea
+.claude
