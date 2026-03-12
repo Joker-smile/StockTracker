@@ -895,19 +895,19 @@ public partial class MainWindow : Window
 
                 string period = (minutesPassed < 30) ? " (早盘)" : (cstTime >= new TimeSpan(14, 30, 0)) ? " (尾盘)" : "";
 
-                // ========== 1. 极致行情与炸板判定 ==========
+                // ========== 1. 极致行情与炸板判定 (Decimal Precision) ==========
                 if (currentDec >= limitPrice - 0.001m) 
                 {
-                    if (period == " (尾盘)") return ratio > 2.2 ? "[涨停]分歧封板" : "[涨停]稳稳封死";
+                    if (period == " (尾盘)") return ratio > 2.5 ? "[涨停]分歧封板" : "[涨停]稳稳封死";
                     if (ratio < 0.6) return "[涨停]一字板";
-                    if (ratio > 4.0) return "[涨停]分歧烂板";
+                    if (ratio > 4.5) return "[涨停]爆量烂板";
                     return "[涨停]强势封板";
                 }
                 
-                // 炸板捕捉：最高价曾触及涨停，但现价跌回
-                if (high >= (double)limitPrice - 0.005 && currentDec < limitPrice * 0.996m)
+                // 炸板捕捉：最高价曾触及涨停，但现价显著回落
+                if (high >= (double)limitPrice - 0.005 && currentDec < limitPrice * 0.995m)
                 {
-                    return "[警惕]炸板回落" + period;
+                    return "[风险]炸板回落" + period;
                 }
 
                 if (currentDec <= floorPrice + 0.001m)
@@ -916,28 +916,31 @@ public partial class MainWindow : Window
                 }
 
                 // ========== 2. 异常异动预警 (胜率压制逻辑) ==========
+                // 极限定投：量比 > 5 往往是短期见顶
+                if (ratio > 5.0 && currentPercent < 5) return "[风险]爆量过热";
+
                 // 高位滞涨：在高位时即便量大也不看多
                 if (isHighPosition)
                 {
-                    if (ratio > 2.5 && currentPercent < 2) return "[风险]高位放量滞涨";
-                    if (upperShadow > (prevClose * 0.03)) return "[风险]高位见顶回落";
-                    if (currentPercent < 0) return "[警惕]高位派发中";
+                    if (ratio > 2.8 && currentPercent < 2) return "[风险]高位放量滞涨";
+                    if (upperShadow > (prevClose * 0.035)) return "[风险]见顶回落";
+                    if (currentPercent < 0) return "[警惕]高位派发";
                 }
 
                 // 破位预警
-                if (currentPrice < ma5 && ratio > 1.8 && currentPercent < -2) return "[风险]放量破位";
+                if (currentPrice < ma5 && ratio > 2.2 && currentPercent < -3) return "[脱逃]放量破位";
 
                 // ========== 3. A股经典K线组合 ==========
                 // 试盘/蓄势
                 if (upperShadow > (bodySize * 2.0) && upperShadow > (prevClose * 0.025))
                 {
-                    if (!isHighPosition && currentPercent > 0) return "[看多]回落蓄势";
+                    if (!isHighPosition && currentPercent > 0) return "[看多]长上影试盘";
                     return "[观察]冲高回落";
                 }
                 // 深V/探底
                 if (lowerShadow > (bodySize * 2.0) && lowerShadow > (prevClose * 0.025))
                 {
-                    if (currentPrice > ma5) return "[看多]深V反弹";
+                    if (currentPrice > ma5) return "[看多]探底回升";
                     return "[观察]谷底支撑";
                 }
 
@@ -955,15 +958,20 @@ public partial class MainWindow : Window
                     }
                     else if (ma5Bias < 2 && currentPercent > -0.5) 
                     {
-                        status = "[趋势]均线支撑";
+                        status = "[看多]回踩均线"; // 安全买点
                     }
-                    else status = "[趋势]震荡攀升";
+                    else if (currentPercent > 0)
+                    {
+                        status = "[趋势]多头占优";
+                    }
+                    else status = "[观察]均线支撑";
                 }
                 else // 空头/整理
                 {
-                    if (ratio < 0.3) status = "[盘整]缩量筑底";
-                    else if (currentPercent < -3 && ratio > 1.3) status = "[看空]杀跌动能";
-                    else status = "[盘整]弱势震荡";
+                    if (ratio < 0.3) status = "[观察]地量筑底";
+                    else if (currentPercent < -5 && ratio > 1.5) status = "[风险]恐慌杀跌";
+                    else if (currentPercent < 0) status = "[盘整]弱势震荡";
+                    else status = "[观察]试图止跌";
                 }
 
                 return $"{status}{period}";
