@@ -1,31 +1,25 @@
 {
   "format": 1,
   "restore": {
-    "D:\\wwwroot\\StockTracker\\StockTracker.csproj": {}
+    "/Users/youliangli/code/StockTracker/StockTracker.csproj": {}
   },
   "projects": {
-    "D:\\wwwroot\\StockTracker\\StockTracker.csproj": {
+    "/Users/youliangli/code/StockTracker/StockTracker.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\wwwroot\\StockTracker\\StockTracker.csproj",
+        "projectUniqueName": "/Users/youliangli/code/StockTracker/StockTracker.csproj",
         "projectName": "StockTracker",
-        "projectPath": "D:\\wwwroot\\StockTracker\\StockTracker.csproj",
-        "packagesPath": "C:\\Users\\Administrator\\.nuget\\packages\\",
-        "outputPath": "D:\\wwwroot\\StockTracker\\obj\\",
+        "projectPath": "/Users/youliangli/code/StockTracker/StockTracker.csproj",
+        "packagesPath": "/Users/youliangli/.nuget/packages/",
+        "outputPath": "/Users/youliangli/code/StockTracker/obj/",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "D:\\vs_sdk\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\Administrator\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "/Users/youliangli/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -44,7 +38,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.200"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -73,7 +67,7 @@
             "Microsoft.NET.ILLink.Tasks": {
               "suppressParent": "All",
               "target": "Package",
-              "version": "[9.0.3, )",
+              "version": "[9.0.14, )",
               "autoReferenced": true
             },
             "Newtonsoft.Json": {
@@ -102,16 +96,12 @@
           "warn": true,
           "downloadDependencies": [
             {
-              "name": "Microsoft.AspNetCore.App.Runtime.osx-arm64",
-              "version": "[9.0.3, 9.0.3]"
+              "name": "Microsoft.AspNetCore.App.Runtime.osx-x64",
+              "version": "[9.0.14, 9.0.14]"
             },
             {
-              "name": "Microsoft.NETCore.App.Host.osx-arm64",
-              "version": "[9.0.3, 9.0.3]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Runtime.osx-arm64",
-              "version": "[9.0.3, 9.0.3]"
+              "name": "Microsoft.NETCore.App.Runtime.osx-x64",
+              "version": "[9.0.14, 9.0.14]"
             }
           ],
           "frameworkReferences": {
@@ -119,11 +109,11 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.201/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/9.0.312/PortableRuntimeIdentifierGraph.json"
         }
       },
       "runtimes": {
-        "osx-arm64": {
+        "osx-x64": {
           "#import": []
         }
       }
