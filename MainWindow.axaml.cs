@@ -1028,7 +1028,7 @@ public partial class MainWindow : Window
                                 
                                 displayData.Add((parts[0], $"[{pureCode}]", current.ToString("F3"), 
                                                 (percent >= 0 ? "+" : "") + percent.ToString("F2") + "%", 
-                                                "买:" + bid, "卖:" + ask, pred, originalCode, GetSector(originalCode)));
+                                                bid, ask, pred, originalCode, GetSector(originalCode)));
                             }
                         }
                     }
@@ -1069,13 +1069,15 @@ public partial class MainWindow : Window
                 new ColumnDefinition { Width = new GridLength(12) },
                 new ColumnDefinition { Width = GridLength.Auto }, // 8: Divider |
                 new ColumnDefinition { Width = new GridLength(12) },
-                new ColumnDefinition { Width = GridLength.Auto }, // 10: Bid
-                new ColumnDefinition { Width = new GridLength(8) },
-                new ColumnDefinition { Width = GridLength.Auto }, // 12: Ask
+                new ColumnDefinition { Width = GridLength.Auto }, // 10: Buy Label "买:"
+                new ColumnDefinition { Width = GridLength.Auto }, // 11: Bid Value
                 new ColumnDefinition { Width = new GridLength(12) },
-                new ColumnDefinition { Width = GridLength.Auto }, // 14: Divider |
+                new ColumnDefinition { Width = GridLength.Auto }, // 13: Sell Label "卖:"
+                new ColumnDefinition { Width = GridLength.Auto }, // 14: Ask Value
+                new ColumnDefinition { Width = new GridLength(12) },
+                new ColumnDefinition { Width = GridLength.Auto }, // 16: Divider |
                 new ColumnDefinition { Width = new GridLength(10) },
-                new ColumnDefinition { Width = GridLength.Auto }  // 16: Pred
+                new ColumnDefinition { Width = GridLength.Auto }  // 18: Pred
             };
 
             int row = 0;
@@ -1090,7 +1092,7 @@ public partial class MainWindow : Window
                     ContextMenu = CreateSharedContextMenu(item.FullCode)
                 };
                 Grid.SetRow(rowBg, row);
-                Grid.SetColumnSpan(rowBg, 17);
+                Grid.SetColumnSpan(rowBg, 19);
                 container.Children.Add(rowBg);
 
                 void AddCol(string text, int col, HorizontalAlignment align = HorizontalAlignment.Left, IBrush? color = null)
@@ -1117,7 +1119,7 @@ public partial class MainWindow : Window
                 AddCol(string.IsNullOrEmpty(item.Code) ? item.Name : $"{item.Name} {item.Code}", 0);
 
                 // Sector immediately after
-                AddCol(item.Sector, 2, color: Brushes.DimGray);
+                AddCol(item.Sector, 2);
 
                 AddCol(item.Price, 4, HorizontalAlignment.Right);
 
@@ -1126,10 +1128,15 @@ public partial class MainWindow : Window
                 if (!string.IsNullOrEmpty(item.Price))
                 {
                     AddCol("|", 8, color: Brush.Parse("#FF555555"));
-                    AddCol(item.Bid, 10, HorizontalAlignment.Right);
-                    AddCol(item.Ask, 12, HorizontalAlignment.Right);
-                    AddCol("|", 14, color: Brush.Parse("#FF555555"));
-                    AddCol("智测:" + item.Pred, 16);
+                    
+                    AddCol("买:", 10, color: Brushes.LightGray);
+                    AddCol(item.Bid, 11, HorizontalAlignment.Right);
+                    
+                    AddCol("卖:", 13, color: Brushes.LightGray);
+                    AddCol(item.Ask, 14, HorizontalAlignment.Right);
+                    
+                    AddCol("|", 16, color: Brush.Parse("#FF555555"));
+                    AddCol("智测:" + item.Pred, 18);
                 }
 
                 row++;
