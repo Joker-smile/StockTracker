@@ -9,3 +9,8 @@ System.Net.Http.HttpRequestException: An error occurred while sending the reques
    at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
    at StockTracker.MainWindow.GetBaseStocksAsync()
 ----------------------------------------
+[2026-03-13 09:42:15] [GetStockConceptsAsync API Failure for 920304]
+System.InvalidOperationException: Cannot access child value on Newtonsoft.Json.Linq.JValue.
+   at Newtonsoft.Json.Linq.JToken.get_Item(Object key)
+   at StockTracker.MainWindow.GetStockConceptsAsync(String symbol)
+----------------------------------------

@@ -195,16 +195,78 @@ public partial class MainWindow : Window
         var dialog = new AddStockWindow();
         await dialog.ShowDialog(this);
         
-        string? input = dialog.Result?.Trim().ToLower();
+        string? input = dialog.Result?.Trim();
         if (string.IsNullOrEmpty(input)) return;
 
-        System.Text.RegularExpressions.Regex stockRegex = new(@"^(sh|sz|bj)?\d{6}$");
-        if (stockRegex.IsMatch(input) && !_stocks.Contains(input))
+        System.Text.RegularExpressions.Regex codeRegex = new(@"^\d{6}$");
+        System.Text.RegularExpressions.Regex fullCodeRegex = new(@"^(sh|sz|bj)\d{6}$");
+        
+        string? targetCode = null;
+
+        if (codeRegex.IsMatch(input) || fullCodeRegex.IsMatch(input.ToLower()))
         {
-            _stocks.Add(input);
+            targetCode = input.ToLower();
+        }
+        else
+        {
+            // Try searching by name
+            targetCode = await SearchStockCode(input);
+            if (targetCode == null)
+            {
+                // Simple hint using placeholder text or just ignoring
+                // For better UX, we could re-open dialog or show a temporary row
+                Dispatcher.UIThread.Post(() => {
+                    var placeholder = this.FindControl<TextBlock>("PlaceholderText");
+                    if (placeholder != null) {
+                        placeholder.Text = $"未找到: {input}";
+                        placeholder.Foreground = Brushes.Red;
+                        Task.Delay(3000).ContinueWith(_ => Dispatcher.UIThread.Post(() => {
+                            placeholder.Text = "右键添加股票";
+                            placeholder.Foreground = Brush.Parse("#FFB0B0B0");
+                        }));
+                    }
+                });
+                return;
+            }
+        }
+
+        if (targetCode != null && !_stocks.Contains(targetCode))
+        {
+            _stocks.Add(targetCode);
             SaveConfig();
             await UpdatePrices();
         }
+    }
+
+    private async Task<string?> SearchStockCode(string input)
+    {
+        try
+        {
+            // Use Sina Suggest API
+            string url = $"http://suggest3.sinajs.cn/suggest/type=11,12,31&key={Uri.EscapeDataString(input)}";
+            if (_httpClient == null) return null;
+            
+            var bytes = await _httpClient.GetByteArrayAsync(url);
+            string response = Encoding.GetEncoding("GB2312").GetString(bytes);
+
+            // var suggestdata="贵州茅台,11,600519,sh600519,贵州茅台,,贵州茅台,99";
+            int start = response.IndexOf('"');
+            int end = response.LastIndexOf('"');
+            if (start != -1 && end > start)
+            {
+                string data = response.Substring(start + 1, end - start - 1);
+                if (string.IsNullOrWhiteSpace(data)) return null;
+
+                string first = data.Split(';')[0];
+                var parts = first.Split(',');
+                if (parts.Length >= 3)
+                {
+                    return parts[2]; // 6-digit code
+                }
+            }
+        }
+        catch { }
+        return null;
     }
 
     private async void RemoveStockItem_Click(object? sender, RoutedEventArgs e)

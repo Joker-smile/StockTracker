@@ -14,9 +14,9 @@
     
     <Border Background="#FF1E1E1E" CornerRadius="8" BorderBrush="#FF444444" BorderThickness="1">
         <StackPanel Margin="15" Spacing="10">
-            <TextBlock Text="添加股票代码" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
-            <TextBlock Text="输入6位数字 (如: 000001):" FontSize="10" Foreground="#FFAAAAAA"/>
-            <TextBox Name="InputBox" Watermark="代码" Background="#FF2D2D2D" Foreground="White" BorderBrush="#FF555555"/>
+            <TextBlock Text="添加股票" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+            <TextBlock Text="输入代码 (000001)、名称 (茅台) 或 拼音 (gzmt):" FontSize="10" Foreground="#FFAAAAAA"/>
+            <TextBox Name="InputBox" Watermark="代码或名称" Background="#FF2D2D2D" Foreground="White" BorderBrush="#FF555555"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
                 <Button Name="BtnCancel" Content="取消" Click="BtnCancel_Click" Background="#FF3E3E42" Foreground="White"/>
                 <Button Name="BtnOk" Content="确定" Click="BtnOk_Click" Background="#FF007ACC" Foreground="White"/>
