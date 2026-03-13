@@ -885,12 +885,14 @@ public partial class MainWindow : Window
                 bool isHighPosition = ma5Bias > 12 || recentTrend > 20; // 处于高位或近期涨幅过大
 
                 // 集合竞价阶段（北京时间 9:15-9:25）
-                if (cstTime >= new TimeSpan(9, 15, 0) && cstTime <= new TimeSpan(9, 25, 0))
+                if (cstTime >= new TimeSpan(9, 15, 0) && cstTime <= new TimeSpan(9, 25, 30))
                 {
-                    double openGap = prevClose > 0 ? (open - prevClose) / prevClose * 100 : 0;
+                    double auctionPrice = open > 0 ? open : currentPrice;
+                    double openGap = prevClose > 0 ? (auctionPrice - prevClose) / prevClose * 100 : 0;
                     string gapSign = openGap >= 0 ? "+" : "";
+                    
                     if (cstTime <= new TimeSpan(9, 20, 0)) return $"[竞价]{gapSign}{openGap:F1}%";
-                    else return $"[竞价]{(openGap > 4.0 ? "强势高开" : openGap > 2.0 ? "小幅高开" : openGap < -2.0 ? "低开反弹?" : "平淡开盘")}{gapSign}{openGap:F1}%";
+                    else return $"[竞价]{(openGap > 4.5 ? "强势高开" : openGap > 2.5 ? "小幅高开" : openGap < -2.5 ? "大幅低开" : "平淡开盘")}{gapSign}{openGap:F1}%";
                 }
 
                 string period = (minutesPassed < 30) ? " (早盘)" : (cstTime >= new TimeSpan(14, 30, 0)) ? " (尾盘)" : "";
@@ -1016,6 +1018,18 @@ public partial class MainWindow : Window
                             string pureCode = originalCode.Length > 6 ? originalCode.Substring(originalCode.Length - 6) : originalCode;
                             if (double.TryParse(parts[2], out double prevClose) && double.TryParse(parts[3], out double current))
                             {
+                                // Handle call auction price virtualization (9:15-9:25)
+                                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                                TimeSpan cstTime = nowUtc.ToOffset(TimeSpan.FromHours(8)).TimeOfDay;
+                                bool isCallAuction = cstTime >= new TimeSpan(9, 15, 0) && cstTime <= new TimeSpan(9, 25, 30);
+                                
+                                if (isCallAuction && (current == 0 || Math.Abs(current - prevClose) < 0.001))
+                                {
+                                    // In Sina API, parts[6] (bid) and parts[7] (ask) often hold the match price durante auction
+                                    if (double.TryParse(parts[6], out double bPrice) && bPrice > 0) current = bPrice;
+                                    else if (double.TryParse(parts[7], out double aPrice) && aPrice > 0) current = aPrice;
+                                }
+
                                 double percent = prevClose > 0 ? (current > 0 ? (current - prevClose) / prevClose * 100 : 0) : 0;
                                 if (current == 0) current = prevClose;
 
