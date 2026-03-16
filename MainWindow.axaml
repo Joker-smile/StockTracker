@@ -34,11 +34,13 @@
             </Border>
 
             <!-- Stock list container -->
-            <Grid Name="StockContainer" Margin="4,1,4,3">
-                <TextBlock Name="PlaceholderText" Text="右键添加股票"
-                           Foreground="#FFB0B0B0" FontSize="12"
-                           FontFamily="Courier New" Margin="0,1"/>
-            </Grid>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="650">
+                <Grid Name="StockContainer" Margin="4,1,4,4">
+                    <TextBlock Name="PlaceholderText" Text="右键添加股票"
+                               Foreground="#FFB0B0B0" FontSize="12"
+                               FontFamily="Courier New" Margin="0,1"/>
+                </Grid>
+            </ScrollViewer>
         </StackPanel>
     </Border>
 </Window>
