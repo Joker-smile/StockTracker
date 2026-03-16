@@ -14,3 +14,13 @@ System.InvalidOperationException: Cannot access child value on Newtonsoft.Json.L
    at Newtonsoft.Json.Linq.JToken.get_Item(Object key)
    at StockTracker.MainWindow.GetStockConceptsAsync(String symbol)
 ----------------------------------------
+[2026-03-13 14:45:35] [GetStockConceptsAsync API Failure for 920199]
+System.InvalidOperationException: Cannot access child value on Newtonsoft.Json.Linq.JValue.
+   at Newtonsoft.Json.Linq.JToken.get_Item(Object key)
+   at StockTracker.MainWindow.GetStockConceptsAsync(String symbol)
+----------------------------------------
+[2026-03-13 14:54:47] [GetStockConceptsAsync API Failure for 920199]
+System.InvalidOperationException: Cannot access child value on Newtonsoft.Json.Linq.JValue.
+   at Newtonsoft.Json.Linq.JToken.get_Item(Object key)
+   at StockTracker.MainWindow.GetStockConceptsAsync(String symbol)
+----------------------------------------

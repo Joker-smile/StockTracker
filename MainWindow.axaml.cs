@@ -912,7 +912,13 @@ public partial class MainWindow : Window
                 // 使用北京时间 (UTC+8) 避免时区干扰
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
                 TimeSpan cstTime = nowUtc.ToOffset(TimeSpan.FromHours(8)).TimeOfDay;
-                
+
+                // 集合竞价前 (9:15之前)
+                if (cstTime < new TimeSpan(9, 15, 0))
+                {
+                    return "[待机]等待竞价";
+                }
+
                 // 1. 时间进度与量比平滑 (Smoothing for early market volatility)
                 double minutesPassed = 0, totalMin = 240.0;
                 if (cstTime < new TimeSpan(9, 30, 0)) minutesPassed = 1;
@@ -955,6 +961,12 @@ public partial class MainWindow : Window
                     
                     if (cstTime <= new TimeSpan(9, 20, 0)) return $"[竞价]{gapSign}{openGap:F1}%";
                     else return $"[竞价]{(openGap > 4.5 ? "强势高开" : openGap > 2.5 ? "小幅高开" : openGap < -2.5 ? "大幅低开" : "平淡开盘")}{gapSign}{openGap:F1}%";
+                }
+
+                // 竞价结束到正式开盘 (9:25:30 - 9:30:00)
+                if (cstTime > new TimeSpan(9, 25, 30) && cstTime < new TimeSpan(9, 30, 0))
+                {
+                    return "[竞价]等待开盘";
                 }
 
                 string period = (minutesPassed < 30) ? " (早盘)" : (cstTime >= new TimeSpan(14, 30, 0)) ? " (尾盘)" : "";
@@ -1088,8 +1100,14 @@ public partial class MainWindow : Window
                                 if (isCallAuction && (current == 0 || Math.Abs(current - prevClose) < 0.001))
                                 {
                                     // In Sina API, parts[6] (bid) and parts[7] (ask) often hold the match price durante auction
-                                    if (double.TryParse(parts[6], out double bPrice) && bPrice > 0) current = bPrice;
-                                    else if (double.TryParse(parts[7], out double aPrice) && aPrice > 0) current = aPrice;
+                                    if (parts.Length > 6 && double.TryParse(parts[6], out double bPrice) && bPrice > 0) 
+                                    {
+                                        current = bPrice;
+                                    }
+                                    else if (parts.Length > 7 && double.TryParse(parts[7], out double aPrice) && aPrice > 0) 
+                                    {
+                                        current = aPrice;
+                                    }
                                 }
 
                                 double percent = prevClose > 0 ? (current > 0 ? (current - prevClose) / prevClose * 100 : 0) : 0;
