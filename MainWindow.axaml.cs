@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, DateTime LastUpdated)> _klineCache = new();
     private FileSystemWatcher? _watcher;
     private bool _isScreenerRunning = false;
+    private string _dataSource = "Eastmoney"; // Default to Eastmoney
 
     public MainWindow()
     {
@@ -58,6 +59,8 @@ public partial class MainWindow : Window
         
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("Referer", "http://finance.sina.com.cn/");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+        _httpClient.Timeout = TimeSpan.FromSeconds(10);
 
         LoadConfig();
         
@@ -156,6 +159,18 @@ public partial class MainWindow : Window
             };
             menu.Items.Add(delItem);
         }
+
+        menu.Items.Add(new Separator());
+
+        var sourceMenu = new MenuItem { Header = "选股数据源" };
+        var emItem = new MenuItem { Header = (_dataSource == "Eastmoney" ? "√ " : "  ") + "东方财富" };
+        emItem.Click += (s, e) => { _dataSource = "Eastmoney"; };
+        var ttItem = new MenuItem { Header = (_dataSource == "Tencent" ? "√ " : "  ") + "腾讯" };
+        ttItem.Click += (s, e) => { _dataSource = "Tencent"; };
+        
+        sourceMenu.Items.Add(emItem);
+        sourceMenu.Items.Add(ttItem);
+        menu.Items.Add(sourceMenu);
 
         menu.Items.Add(new Separator());
 
@@ -379,13 +394,13 @@ public partial class MainWindow : Window
 
             try
             {
-                var techResult = await CheckTechnicalAndMomentumAsync(stock.Code, stock.Name, stock.Price, stock.Pe, stock.MarketCap);
+                var techResult = await CheckTechnicalAndMomentumAsync(stock.Code, stock.Name, stock.Price, stock.Pe, stock.MarketCap, stock.Turnover);
                 if (techResult.HasValue)
                 {
                     string concepts = await GetStockConceptsAsync(stock.Code);
                     passedStocks.Add((stock.Code, stock.Name, stock.Price, techResult.Value.Ma20, techResult.Value.Ma200, stock.Pe, stock.MarketCap, concepts, techResult.Value.BuyPoint));
                 }
-                await Task.Delay(20); // Friendly request throttling matching Python's time.sleep(0.02)
+                await Task.Delay(200 + Random.Shared.Next(100)); // Adaptive throttling to avoid IP block (150ms-350ms)
             }
             catch (Exception ex)
             {
@@ -448,10 +463,25 @@ public partial class MainWindow : Window
     {
         try
         {
-            // 获取上证指数 K线数据
+            // 获取上证指数 K线数据 (000001)
             string url = "http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.000001&ut=7eea3edcaed734bea9cbbc2440b282fb&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=100";
 
-            string jsonStr = await _httpClient!.GetStringAsync(url);
+            string jsonStr = "";
+            if (_dataSource == "Tencent")
+            {
+                // Specifically use SH Composite Index code for Tencent
+                jsonStr = await FetchKLinesFromTencentAsync("sh000001");
+            }
+            else
+            {
+                jsonStr = await _httpClient!.GetStringAsync(url);
+            }
+
+            if (string.IsNullOrEmpty(jsonStr))
+            {
+                return new MarketEnvironment { IsValid = true, IsNeutral = true };
+            }
+
             var root = JObject.Parse(jsonStr);
             var klines = root["data"]?["klines"] as JArray;
 
@@ -584,14 +614,25 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<(double Ma20, double Ma200, string BuyPoint)?> CheckTechnicalAndMomentumAsync(string symbol, string name, double currentPrice, double pe, double marketCap)
+    private async Task<(double Ma20, double Ma200, string BuyPoint)?> CheckTechnicalAndMomentumAsync(string symbol, string name, double currentPrice, double pe, double marketCap, double currentTurnover)
     {
         try
         {
             string secid = symbol.StartsWith("6") ? "1." + symbol : "0." + symbol;
             string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&ut=7eea3edcaed734bea9cbbc2440b282fb&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=250";
 
-            string jsonStr = await _httpClient!.GetStringAsync(url);
+            string jsonStr = "";
+            if (_dataSource == "Tencent")
+            {
+                jsonStr = await FetchKLinesFromTencentAsync(symbol);
+            }
+            else
+            {
+                jsonStr = await _httpClient!.GetStringAsync(url);
+            }
+
+            if (string.IsNullOrEmpty(jsonStr)) return null;
+
             var root = JObject.Parse(jsonStr);
             var klines = root["data"]?["klines"] as JArray;
 
@@ -605,18 +646,32 @@ public partial class MainWindow : Window
             foreach (var k in klines)
             {
                 var parts = k.ToString().Split(',');
-                if (parts.Length >= 11)
+                if (parts.Length >= 9)
                 {
-                    closes.Add(double.Parse(parts[2]));
-                    vols.Add(double.Parse(parts[5]));
-                    pcts.Add(double.Parse(parts[8]));
+                    double close = 0;
+                    double.TryParse(parts[2], out close);
+                    closes.Add(close);
+                    
+                    double vol = 0;
+                    double.TryParse(parts[5], out vol);
+                    vols.Add(vol);
+
+                    double pct = 0;
+                    double.TryParse(parts[8], out pct);
+                    pcts.Add(pct);
+                    
                     double t = 0;
-                    double.TryParse(parts[10], out t);
+                    if (parts.Length >= 11) double.TryParse(parts[10], out t);
                     turnovers.Add(t);
                 }
             }
 
             int count = closes.Count;
+            if (count < 200) return null;
+            
+            // Note: Use the last close from K-line data instead of live currentPrice 
+            // to stay consistent with adjusted averages (ma20/ma200).
+            double adjustedCurrent = closes.Last(); 
             double ma200 = closes.Skip(count - 200).Average();
             double ma20 = closes.Skip(count - 20).Average();
             double ma10 = closes.Skip(count - 10).Average();
@@ -624,7 +679,7 @@ public partial class MainWindow : Window
             double avgVol = vols.Skip(count - 20).Average();
 
             // A: Above MA200 (长期趋势向上)
-            if (currentPrice < ma200) return null;
+            if (adjustedCurrent < ma200) return null;
 
             // A1: 均线多头排列（确保上升趋势）
             if (!(ma5 > ma10 && ma10 > ma20)) return null;
@@ -649,7 +704,7 @@ public partial class MainWindow : Window
             string buyPoint = "";
             bool isValidBuyPoint = false;
 
-            double ma20Deviation = (currentPrice / ma20 - 1) * 100;
+            double ma20Deviation = (adjustedCurrent / ma20 - 1) * 100;
             var recent5Vol = vols.Skip(count - 5).ToList();
             double lastPct = recent5Pct.Last();
             double lastVol = recent5Vol.Last();
@@ -719,15 +774,89 @@ public partial class MainWindow : Window
             }
 
             // D: Turnover activity (最近5天有活跃交易) - 提高活跃度要求
-            var recent5T = turnovers.Skip(count - 5).ToList();
-            if (recent5T.Max() <= 4.0 && recent5T.Average() <= 2.5) return null;
+            if (_dataSource == "Tencent")
+            {
+                // Tencent K-line doesn't have historical turnover, use current day's turnover as proxy
+                if (currentTurnover <= 4.0) return null; 
+            }
+            else
+            {
+                var recent5T = turnovers.Skip(count - 5).ToList();
+                if (recent5T.Max() <= 4.0 && recent5T.Average() <= 2.5) return null;
+            }
 
             return (ma20, ma200, buyPoint);
         }
         catch (Exception ex)
         {
-            Program.LogError($"CheckTechnicalAndPegAsync API Failure for {symbol}", ex);
+            Program.LogError($"CheckTechnicalAndMomentumAsync API Failure for {symbol}", ex);
             return null;
+        }
+    }
+
+    private async Task<string> FetchKLinesFromTencentAsync(string symbol)
+    {
+        try
+        {
+            string fullSymbol = symbol;
+            if (!symbol.StartsWith("sh") && !symbol.StartsWith("sz"))
+            {
+                string prefix = (symbol.StartsWith("6") || symbol.StartsWith("9") || symbol.StartsWith("11")) ? "sh" : "sz";
+                fullSymbol = prefix + symbol;
+            }
+            
+            string url = $"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?_var=kline_dayqfq&param={fullSymbol},day,,,255,qfq";
+            
+            var response = await _httpClient!.GetStringAsync(url);
+            if (string.IsNullOrEmpty(response)) return "";
+
+            // Remove variable prefix if exists
+            if (response.Contains("=")) response = response.Substring(response.IndexOf('=') + 1);
+            
+            var root = JObject.Parse(response);
+            var dayData = root["data"]?[fullSymbol]?["qfqday"] as JArray;
+            if (dayData == null) return "";
+
+            // Convert Tencent format [date, open, close, high, low, vol] 
+            // to Eastmoney format "date,open,close,high,low,vol,..."
+            var emKlines = new JArray();
+            double prevClose = -1;
+            foreach (var k in dayData)
+            {
+                var p = k as JArray;
+                if (p != null && p.Count >= 6)
+                {
+                    double close = 0;
+                    double.TryParse(p[2]?.ToString(), out close);
+                    
+                    double pct = 0;
+                    if (prevClose > 0)
+                    {
+                        pct = (close / prevClose - 1) * 100;
+                    }
+                    prevClose = close;
+
+                    // Map to: f51(0), f52(1), f53(2), f54(3), f55(4), f56(5), f57(6), f58(7), f59(8)
+                    // Index 8 is PCT (normalized to f59)
+                    string emLine = $"{p[0]},{p[1]},{p[2]},{p[3]},{p[4]},{p[5]},0,0,{pct:F2},0,0"; 
+                    emKlines.Add(emLine);
+                }
+            }
+
+            var emRoot = new JObject
+            {
+                ["data"] = new JObject
+                {
+                    ["klines"] = emKlines
+                }
+            };
+
+            return emRoot.ToString();
+        }
+        catch (Exception ex)
+        {
+            Program.LogError($"FetchKLinesFromTencentAsync Error for {symbol}", ex);
+            return "";
         }
     }
 
