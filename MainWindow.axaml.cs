@@ -131,8 +131,22 @@ public partial class MainWindow : Window
             }
         }
 
-        this.Width = 300;
-        this.Height = 50;
+        this.MinWidth = 300;
+        this.MinHeight = 50;
+
+        // 监听窗口状态变化，确保从最小化恢复时重新计算布局
+        this.PropertyChanged += (s, e) => {
+            if (e.Property.Name == "WindowState" && this.WindowState == WindowState.Normal)
+            {
+                Dispatcher.UIThread.Post(() => {
+                    this.InvalidateMeasure();
+                    // 强制触发一次 SizeToContent 重新计算
+                    var current = this.SizeToContent;
+                    this.SizeToContent = SizeToContent.Manual;
+                    this.SizeToContent = current;
+                }, DispatcherPriority.Render);
+            }
+        };
     }
 
     private ContextMenu CreateSharedContextMenu(string? targetCode)
@@ -1363,6 +1377,12 @@ public partial class MainWindow : Window
                 }
 
                 row++;
+            }
+
+            // 每次 UI 更新后，如果窗口是可见的且未最小化，强制触发一次测量更新
+            if (this.WindowState == WindowState.Normal && this.IsVisible)
+            {
+                this.InvalidateMeasure();
             }
         });
     }
