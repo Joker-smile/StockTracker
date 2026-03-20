@@ -27,6 +27,32 @@ public partial class MainWindow : Window
     private FileSystemWatcher? _watcher;
     private bool _isScreenerRunning = false;
     private string _dataSource = "Eastmoney"; // Default to Eastmoney
+    private readonly Random _random = new Random();
+
+    // 带重试机制的HTTP请求
+    private async Task<string> HttpGetWithRetryAsync(string url, int maxRetries = 3)
+    {
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                var response = await _httpClient!.GetStringAsync(url);
+                return response;
+            }
+            catch (HttpRequestException ex) when (i < maxRetries - 1)
+            {
+                // 网络错误，等待后重试
+                await Task.Delay(1000 * (i + 1)); // 1s, 2s, 3s递增延迟
+                Program.LogError($"HTTP request failed for {url}, retry {i + 1}/{maxRetries}", ex);
+            }
+            catch (Exception)
+            {
+                // 其他异常直接抛出
+                throw;
+            }
+        }
+        return ""; // 所有重试都失败
+    }
 
     public MainWindow()
     {
@@ -392,10 +418,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Sort by turnover descending and take top 500 (增加处理数量)
-        var processList = baseStocks.OrderByDescending(s => s.Turnover).Take(500).ToList();
+        // 改进 7: 候选池排序策略 - 使用真实涨幅优先选启动初期的票
+        // 真实涨幅区间优先级：-2%~+3%（启动初期） > +3%~+5%（强势启动） > +5%~+8%（加速中） > 其他
+        var processList = baseStocks
+            .OrderBy(s =>
+            {
+                // 使用真实涨幅（ChangePercent）而不是换手率反推
+                if (s.ChangePercent >= -2.0 && s.ChangePercent <= 3.0) return 0; // 启动初期，最优
+                if (s.ChangePercent > 3.0 && s.ChangePercent <= 5.0) return 1; // 强势启动
+                if (s.ChangePercent > 5.0 && s.ChangePercent <= 8.0) return 2; // 加速中
+                return 3; // 追高风险或弱势
+            })
+            .ThenBy(s => Math.Abs(s.ChangePercent)) // 同组内涨幅小的优先
+            .Take(500).ToList();
         
-        var passedStocks = new List<(string Code, string Name, double Price, double Ma20, double Ma200, double Pe, double MarketCap, string Concepts, string BuyPoint)>();
+        var passedStocks = new List<(string Code, string Name, double Price, double Ma20, double Ma200, double Pe, double MarketCap, string Concepts, string BuyPoint, double Score)>();
 
         int tested = 0;
         foreach (var stock in processList)
@@ -408,11 +445,11 @@ public partial class MainWindow : Window
 
             try
             {
-                var techResult = await CheckTechnicalAndMomentumAsync(stock.Code, stock.Name, stock.Price, stock.Pe, stock.MarketCap, stock.Turnover);
+                var techResult = await CheckTechnicalAndMomentumAsync(stock.Code, stock.Name, stock.Price, stock.Pe, stock.MarketCap, stock.Turnover, marketEnv);
                 if (techResult.HasValue)
                 {
                     string concepts = await GetStockConceptsAsync(stock.Code);
-                    passedStocks.Add((stock.Code, stock.Name, stock.Price, techResult.Value.Ma20, techResult.Value.Ma200, stock.Pe, stock.MarketCap, concepts, techResult.Value.BuyPoint));
+                    passedStocks.Add((stock.Code, stock.Name, stock.Price, techResult.Value.Ma20, techResult.Value.Ma200, stock.Pe, stock.MarketCap, concepts, techResult.Value.BuyPoint, techResult.Value.Score));
                 }
                 await Task.Delay(200 + Random.Shared.Next(100)); // Adaptive throttling to avoid IP block (150ms-350ms)
             }
@@ -427,8 +464,8 @@ public partial class MainWindow : Window
             UpdateLoadingText($"✅ 筛选完毕！找到 {passedStocks.Count} 只强势标的。正在注入...");
             await Task.Delay(1000);
 
-            // Sort by market cap ascending (smallest first)
-            passedStocks = passedStocks.OrderBy(s => s.MarketCap).ToList();
+            // 改进：按综合评分降序排序（Score越高越好），同分内按市值升序
+            passedStocks = passedStocks.OrderByDescending(s => s.Score).ThenBy(s => s.MarketCap).ToList();
             
             bool anyNew = false;
             foreach (var s in passedStocks)
@@ -460,6 +497,7 @@ public partial class MainWindow : Window
         public double Turnover { get; set; }
         public double Pe { get; set; }
         public double MarketCap { get; set; }
+        public double ChangePercent { get; set; } // 新增：真实涨幅
     }
 
     private class MarketEnvironment
@@ -488,7 +526,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                jsonStr = await _httpClient!.GetStringAsync(url);
+                // 使用重试机制获取大盘数据
+                jsonStr = await HttpGetWithRetryAsync(url, maxRetries: 2);
             }
 
             if (string.IsNullOrEmpty(jsonStr))
@@ -510,7 +549,11 @@ public partial class MainWindow : Window
                 var parts = k.ToString().Split(',');
                 if (parts.Length >= 3)
                 {
-                    closes.Add(double.Parse(parts[2]));
+                    // parts[0]是日期，parts[1]是开盘，parts[2]是收盘价
+                    if (double.TryParse(parts[2], out double closeVal))
+                    {
+                        closes.Add(closeVal);
+                    }
                 }
             }
 
@@ -558,11 +601,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            string url = "http://82.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12,f14,f2,f8,f9,f20";
-            string jsonStr = await _httpClient!.GetStringAsync(url);
+            string url = "http://82.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12,f14,f2,f3,f8,f9,f20";
+            string jsonStr = await HttpGetWithRetryAsync(url, maxRetries: 2);
             var root = JObject.Parse(jsonStr);
             var items = root["data"]?["diff"] as JArray;
-            
+
             if (items == null) return new List<StockBasic>();
 
             var list = new List<StockBasic>();
@@ -572,6 +615,7 @@ public partial class MainWindow : Window
                 if (name.Contains("ST") || name.Contains("退")) continue;
 
                 if (double.TryParse(item["f2"]?.ToString(), out double price) && price > 0 &&
+                    double.TryParse(item["f3"]?.ToString(), out double changePercent) &&
                     double.TryParse(item["f8"]?.ToString(), out double turnover) &&
                     double.TryParse(item["f9"]?.ToString(), out double pe) &&
                     double.TryParse(item["f20"]?.ToString(), out double marketCap))
@@ -615,7 +659,8 @@ public partial class MainWindow : Window
                         Price = price,
                         Turnover = turnover,
                         Pe = pe,
-                        MarketCap = marketCap
+                        MarketCap = marketCap,
+                        ChangePercent = changePercent // 新增：真实涨幅
                     });
                 }
             }
@@ -628,7 +673,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<(double Ma20, double Ma200, string BuyPoint)?> CheckTechnicalAndMomentumAsync(string symbol, string name, double currentPrice, double pe, double marketCap, double currentTurnover)
+    private async Task<(double Ma20, double Ma200, string BuyPoint, double Score)?> CheckTechnicalAndMomentumAsync(string symbol, string name, double currentPrice, double pe, double marketCap, double currentTurnover, MarketEnvironment? marketEnv = null)
     {
         try
         {
@@ -642,7 +687,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                jsonStr = await _httpClient!.GetStringAsync(url);
+                // 使用重试机制获取K线数据
+                jsonStr = await HttpGetWithRetryAsync(url, maxRetries: 2);
             }
 
             if (string.IsNullOrEmpty(jsonStr)) return null;
@@ -655,6 +701,9 @@ public partial class MainWindow : Window
             var closes = new List<double>();
             var vols = new List<double>();
             var pcts = new List<double>();
+            var highs = new List<double>();
+            var lows = new List<double>();
+            var opens = new List<double>();
             var turnovers = new List<double>();
 
             foreach (var k in klines)
@@ -662,18 +711,28 @@ public partial class MainWindow : Window
                 var parts = k.ToString().Split(',');
                 if (parts.Length >= 9)
                 {
-                    double close = 0;
-                    double.TryParse(parts[2], out close);
-                    closes.Add(close);
-                    
-                    double vol = 0;
-                    double.TryParse(parts[5], out vol);
-                    vols.Add(vol);
+                    // parts[0]是日期，跳过；parts[1]是开盘价，parts[2]是收盘价，parts[3]是最高价，parts[4]是最低价
+                    // 东方财富格式: "日期,开盘,收盘,最高,最低,成交量,..."
+                    // 注意：parts[0]是日期字符串，不是数值
 
-                    double pct = 0;
-                    double.TryParse(parts[8], out pct);
-                    pcts.Add(pct);
-                    
+                    // 确保所有必需字段都能成功解析，否则跳过这条K线
+                    if (!double.TryParse(parts[1], out double openVal) ||
+                        !double.TryParse(parts[2], out double closeVal) ||
+                        !double.TryParse(parts[3], out double highVal) ||
+                        !double.TryParse(parts[4], out double lowVal) ||
+                        !double.TryParse(parts[5], out double volVal) ||
+                        !double.TryParse(parts[8], out double pctVal))
+                    {
+                        continue; // 跳过解析失败的K线
+                    }
+
+                    opens.Add(openVal);
+                    closes.Add(closeVal);
+                    highs.Add(highVal);
+                    lows.Add(lowVal);
+                    vols.Add(volVal);
+                    pcts.Add(pctVal);
+
                     double t = 0;
                     if (parts.Length >= 11) double.TryParse(parts[10], out t);
                     turnovers.Add(t);
@@ -681,125 +740,239 @@ public partial class MainWindow : Window
             }
 
             int count = closes.Count;
-            if (count < 200) return null;
-            
-            // Note: Use the last close from K-line data instead of live currentPrice 
-            // to stay consistent with adjusted averages (ma20/ma200).
-            double adjustedCurrent = closes.Last(); 
+            double adjustedCurrent = closes.Last();
             double ma200 = closes.Skip(count - 200).Average();
             double ma20 = closes.Skip(count - 20).Average();
             double ma10 = closes.Skip(count - 10).Average();
             double ma5 = closes.Skip(count - 5).Average();
             double avgVol = vols.Skip(count - 20).Average();
 
-            // A: Above MA200 (长期趋势向上)
-            if (adjustedCurrent < ma200) return null;
+            // 综合评分系统（初始分100）
+            double finalScore = 100.0;
 
-            // A1: 均线多头排列（确保上升趋势）
+            // --- 优化 2 & 4: 累计涨幅与高位过滤 ---
+            // 核心风控：大A追高胜率极低，直接排除涨幅过大的票
+            double gain5d = pcts.Skip(count - 5).Sum();
+            double gain10d = pcts.Skip(count - 10).Sum();
+            double gain20d = pcts.Skip(count - 20).Sum();
+
+            // 根据大盘环境动态调整阈值
+            double maxGain5d = (marketEnv?.IsBullish == true) ? 18.0 : (marketEnv?.IsBearish == true ? 10.0 : 15.0);
+            double maxGain10d = (marketEnv?.IsBullish == true) ? 28.0 : (marketEnv?.IsBearish == true ? 15.0 : 25.0);
+
+            if (gain5d > maxGain5d || gain10d > maxGain10d || gain20d > 35.0) return null;
+
+            // 长期高位过滤：偏离半年线(MA200)超过60%说明已进入泡沫期
+            if (adjustedCurrent > ma200 * 1.6) return null;
+
+            // --- 改进 1: MACD 策略优化（支持水下金叉拐点）---
+            double ema12 = adjustedCurrent, ema26 = adjustedCurrent;
+            double dea = 0;
+            var difs = new List<double>();
+            for (int i = 0; i < count; i++) {
+                ema12 = ema12 * 11/13 + closes[i] * 2/13;
+                ema26 = ema26 * 25/27 + closes[i] * 2/27;
+                double dif = ema12 - ema26;
+                difs.Add(dif);
+                dea = dea * 8/10 + dif * 2/10;
+            }
+            double finalDif = difs.Last();
+            double prevDif5 = difs.Count > 5 ? difs[^5] : difs.First();
+
+            // 模式A：水上金叉（稳健）
+            bool isGoldenCrossAboveWater = finalDif > 0 && finalDif > dea;
+            // 模式B：水下金叉拐点（进攻，胜率更高）
+            bool isGoldenCrossBelowWater = finalDif < 0 && finalDif > dea && (finalDif - prevDif5) > 0.01;
+
+            if (!isGoldenCrossAboveWater && !isGoldenCrossBelowWater) return null;
+
+            // 底背离检查：股价创新低但MACD未创新低
+            if (count >= 20) {
+                var recent20Closes = closes.Skip(count - 20).ToList();
+                var recent20Difs = difs.Skip(count - 20).ToList();
+                double priceMin = recent20Closes.Min();
+                double difMin = recent20Difs.Min();
+                int priceMinIdx = recent20Closes.IndexOf(priceMin);
+                int difMinIdx = recent20Difs.IndexOf(difMin);
+
+                // 股价近期创新低但DIF未创新低 → 底背离
+                if (priceMinIdx > difMinIdx && priceMinIdx >= 15) {
+                    finalScore += 15; // 底背离加分
+                }
+            }
+
+            // 水上金叉加分，水下拐点中性
+            if (isGoldenCrossAboveWater) finalScore += 10;
+            else finalScore += 5; // 水下拐点少量加分
+
+            // --- 改进 2: ATR 波动率过滤与评分 ---
+            double totalTr = 0;
+            for (int i = count - 20; i < count; i++) {
+                double tr = Math.Max(highs[i] - lows[i], Math.Max(Math.Abs(highs[i] - (i > 0 ? closes[i-1] : opens[i])), Math.Abs(lows[i] - (i > 0 ? closes[i-1] : opens[i]))));
+                totalTr += tr;
+            }
+            double atr = totalTr / 20;
+            double atrRatio = (atr / adjustedCurrent) * 100;
+            // 严格执行计划：1% - 5%
+            if (atrRatio > 5.0 || atrRatio < 1.0) return null;
+
+            // ATR在2-3%区间最理想
+            if (atrRatio >= 2.0 && atrRatio <= 3.0) finalScore += 5;
+
+            // --- 改进 3: 量能形态识别（新增）---
+            // 阶梯放量：近10日成交量呈递增趋势
+            if (count >= 10) {
+                var recent10Vol = vols.Skip(count - 10).ToList();
+                bool isAscending = true;
+                for (int i = 1; i < 10; i++) {
+                    if (recent10Vol[i] <= recent10Vol[i-1] * 0.9) {
+                        isAscending = false;
+                        break;
+                    }
+                }
+                if (isAscending) finalScore += 10; // 阶梯放量建仓信号
+            }
+
+            // 堆量形态：近5日量 > 均量 且 振幅 < 5%
+            if (count >= 5) {
+                var recent5Vol = vols.Skip(count - 5).ToList();
+                var recent5High = highs.Skip(count - 5).ToList();
+                var recent5Low = lows.Skip(count - 5).ToList();
+                bool isHighVol = recent5Vol.All(v => v > avgVol * 0.9);
+                bool isLowVolatility = true;
+                for (int i = 0; i < 5; i++) {
+                    double amplitude = ((recent5High[i] - recent5Low[i]) / closes[count - 5 + i]) * 100;
+                    if (amplitude > 5.0) {
+                        isLowVolatility = false;
+                        break;
+                    }
+                }
+                if (isHighVol && isLowVolatility) finalScore += 8; // 堆量蓄势
+            }
+
+            // 缩量横盘：近10日股价横盘(±3%) 且 量能递减
+            if (count >= 10) {
+                var recent10Close = closes.Skip(count - 10).ToList();
+                var recent10Vol = vols.Skip(count - 10).ToList();
+                double maxPrice = recent10Close.Max();
+                double minPrice = recent10Close.Min();
+                double priceRange = ((maxPrice - minPrice) / minPrice) * 100;
+
+                bool isPriceConsolidation = priceRange < 3.0;
+                bool isVolumeDecreasing = true;
+                for (int i = 1; i < 10; i++) {
+                    if (recent10Vol[i] >= recent10Vol[i-1] * 1.1) {
+                        isVolumeDecreasing = false;
+                        break;
+                    }
+                }
+                if (isPriceConsolidation && isVolumeDecreasing) finalScore += 12; // 洗盘完成
+            } 
+
+            // --- A: 趋势基础 ---
+            if (adjustedCurrent < ma200) return null;
             if (!(ma5 > ma10 && ma10 > ma20)) return null;
 
-            // B: 连续下跌过滤（避免选入"死猫跳"）
+            // --- B: 连续下跌过滤 ---
             var recent5Pct = pcts.Skip(count - 5).ToList();
-
-            // 检查连续下跌天数（比累计跌幅更准确）
             int consecutiveDownDays = 0;
-            foreach (var pct in recent5Pct)
-            {
-                if (pct < 0) consecutiveDownDays++;
-                else break;
-            }
-            if (consecutiveDownDays >= 4) return null; // 连续4天下跌，直接排除（提高质量）
+            foreach (var pct in recent5Pct) { if (pct < 0) consecutiveDownDays++; else break; }
+            if (consecutiveDownDays >= 4) return null;
 
-            // 同时检查累计跌幅（双重保险）
-            double recent5DaySum = recent5Pct.Sum();
-            if (recent5DaySum < -10.0) return null; // 5天累计跌幅超过10%，直接排除
+            // --- 改进 4: 盈亏比计算（新增风控）---
+            double stopLossPrice = Math.Max(ma20, lows.Skip(count - 10).Max());
+            double targetPrice = adjustedCurrent * 1.08;
+            double riskRewardRatio = (targetPrice - adjustedCurrent) / Math.Max(0.01, adjustedCurrent - stopLossPrice);
 
-            // C: 买点逻辑：精选高质量买点
+            if (riskRewardRatio < 2.0) return null; // 盈亏比必须 >= 2.0
+
+            // 盈亏比越高，加分越多
+            if (riskRewardRatio >= 3.0) finalScore += 10;
+            else if (riskRewardRatio >= 2.5) finalScore += 5;
+
+            // --- C: 优化买点逻辑 (收紧偏离度) ---
             string buyPoint = "";
             bool isValidBuyPoint = false;
-
             double ma20Deviation = (adjustedCurrent / ma20 - 1) * 100;
-            var recent5Vol = vols.Skip(count - 5).ToList();
             double lastPct = recent5Pct.Last();
-            double lastVol = recent5Vol.Last();
+            double lastVol = vols.Last();
 
-            // 买点1: 回踩买点（最安全）- MA20附近±3%且缩量
-            if (Math.Abs(ma20Deviation) <= 3 && lastVol < avgVol * 1.1)
+            // 1. 回踩买点：MA20附近±3% 且 缩量
+            if (Math.Abs(ma20Deviation) <= 3 && lastVol < avgVol * 1.15)
             {
-                buyPoint = "回踩买点";
+                buyPoint = (lastVol < avgVol * 0.85) ? "回踩缩量" : "回踩买点";
                 isValidBuyPoint = true;
+                finalScore += 15; // 回踩买点最优
             }
-            // 买点2: 突破买点（激进）- 突破MA20且放量
-            else if (ma20Deviation > 3 && ma20Deviation <= 12 && lastPct > 2 && lastVol > avgVol * 1.3)
+            // 2. 突破买点：收紧上限至8%，要求放量明显
+            else if (ma20Deviation > 3 && ma20Deviation <= 8 && lastPct > 2.5 && lastVol > avgVol * 1.5)
             {
                 buyPoint = "突破买点";
                 isValidBuyPoint = true;
+                finalScore += 8; // 突破买点次之
             }
-            // 买点3: 多头持有（稳健）- MA20上方且今日上涨
-            else if (ma20Deviation > 0 && ma20Deviation <= 6 && lastPct > 0.5)
+            // 3. 稳健持有：MA20上方温和放量
+            else if (ma20Deviation > 0 && ma20Deviation <= 5 && lastPct > 0.3 && lastVol > avgVol * 0.9)
             {
                 buyPoint = "多头持有";
                 isValidBuyPoint = true;
+                finalScore += 5; // 多头持有再次
+            }
+
+            // 执行计划：大盘空头(熊市)时，强制只允许"回踩"类买点，提高防御性
+            if (marketEnv?.IsBearish == true)
+            {
+                if (buyPoint != "回踩买点" && buyPoint != "回踩缩量") return null;
             }
 
             if (!isValidBuyPoint) return null;
 
-            // C: 成交量形态判断
-            var recent10Pct = pcts.Skip(count - 10).ToList();
-            var recent10Vol = vols.Skip(count - 10).ToList();
-            var recent10VolRatio = recent10Vol.Select(v => v / avgVol).ToList();
+            // --- 改进 5: 连板风险智能识别（增强）---
+            int limitUps = pcts.Skip(count - 5).Count(p => p > 9.7);
+            if (limitUps >= 2) return null; // 5日内2板以上直接剔除
 
-            // C1: 排除近期放量暴跌
-            var ma20Volumes = new List<double>();
-            for (int i = count - 10; i < count; i++)
-            {
-                ma20Volumes.Add(vols.Skip(Math.Max(0, i - 19)).Take(Math.Min(20, i + 1)).Average());
-            }
+            // 检查连续3日大涨（加速赶顶）
+            var recent3Pct = pcts.Skip(count - 3).ToList();
+            if (recent3Pct.Sum() > 25.0) return null;
 
-            for (int i = 0; i < 10; i++)
-            {
-                if (recent10Pct[i] < -5.0 && recent10Vol[i] > ma20Volumes[i] * 1.5)
-                {
-                    return null; // volume expanded crash found
-                }
-            }
+            // 检查连续涨停（今日涨停+昨日涨停）
+            if (recent5Pct.Count >= 2) {
+                bool isTodayLimitUp = lastPct > 9.7;
+                bool isYesterdayLimitUp = recent5Pct[^2] > 9.7;
+                if (isTodayLimitUp && isYesterdayLimitUp) return null; // 连板风险
+            } 
 
-            // C2: 排除放量滞涨（高位诱多）- 放宽条件
-            // 最近3天平均放量 > 2倍，但涨幅 < 1%
-            if (buyPoint == "多头持有" || buyPoint == "突破买点" || buyPoint == "趋势跟踪")
-            {
-                var recent3Vol = recent10Vol.Skip(7).ToList();
-                var recent3Pct = recent10Pct.Skip(7).ToList();
-                if (recent3Vol.Average() > avgVol * 2.0 && recent3Pct.Average() < 1.0)
-                {
-                    return null; // 放量滞涨，主力可能在出货
-                }
-            }
+            // --- 改进 6: 量价健康度评分 (5日量价一致性) ---
+            int volumePriceScore = 0;
+            var vpRecent5Vol = vols.Skip(count - 5).ToList();
+            var recent5Price = closes.Skip(count - 5).ToList();
+            var prevPrice = closes[count - 6];
 
-            // C3: 优先选择缩量回踩的健康形态
-            if (buyPoint == "回踩买点")
+            for (int i = 0; i < 5; i++)
             {
-                // 检查最近3天是否缩量
-                var recent3Vol = recent10Vol.Skip(7).ToList();
-                if (recent3Vol.All(v => v < avgVol * 0.9))
-                {
-                    buyPoint = "回踩缩量";
-                }
-            }
+                double currentP = recent5Price[i];
+                double currentV = vpRecent5Vol[i];
+                double prevP = i == 0 ? prevPrice : recent5Price[i - 1];
+                double prevV = i == 0 ? vols[count - 6] : vpRecent5Vol[i - 1];
 
-            // D: Turnover activity (最近5天有活跃交易) - 提高活跃度要求
-            if (_dataSource == "Tencent")
-            {
-                // Tencent K-line doesn't have historical turnover, use current day's turnover as proxy
-                if (currentTurnover <= 4.0) return null; 
+                bool isPriceUp = currentP > prevP;
+                bool isVolUp = currentV > prevV;
+
+                if (isPriceUp && isVolUp) volumePriceScore += 2; // 价涨量增，健康
+                else if (isPriceUp && !isVolUp) volumePriceScore += 1; // 缩量上涨，洗盘
+                else if (!isPriceUp && isVolUp) volumePriceScore -= 2; // 放量下杀，风险
             }
-            else
-            {
+            // 严格执行计划：总分 < 0 排除
+            if (volumePriceScore < 0) return null;
+
+            // --- D: 活跃度要求 ---
+            if (_dataSource == "Tencent") { if (currentTurnover <= 4.0) return null; }
+            else {
                 var recent5T = turnovers.Skip(count - 5).ToList();
-                if (recent5T.Max() <= 4.0 && recent5T.Average() <= 2.5) return null;
+                if (recent5T.Max() <= 3.5 || recent5T.Average() <= 1.8) return null;
             }
 
-            return (ma20, ma200, buyPoint);
+            return (ma20, ma200, buyPoint, finalScore);
         }
         catch (Exception ex)
         {
