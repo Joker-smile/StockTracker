@@ -1,4 +1,5 @@
 using Avalonia;
+using Markdig;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -26,8 +27,19 @@ public partial class MainWindow : Window
     private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, DateTime LastUpdated)> _klineCache = new();
     private FileSystemWatcher? _watcher;
     private bool _isScreenerRunning = false;
-    private string _dataSource = "Eastmoney"; // Default to Eastmoney
+    private string _dataSource = "Tencent"; // Default to Tencent
     private readonly Random _random = new Random();
+
+    // ═══════════════════════════════════════════
+    // AI 分析 / 邮件 / 定时任务 - 新增字段区
+    // ═══════════════════════════════════════════
+    private AppSettings _appSettings = new();
+    private string _settingsFile = "";
+    private DispatcherTimer? _scheduleTimer;
+    private bool _isAiAnalysisRunning = false;
+    private DateTime _lastScheduleRunDate = DateTime.MinValue;
+    private List<(string Name, string Code, string Price, string Pct, string Sector, string Pred)> _lastDisplayData = new();
+    private bool _isContextMenuOpen = false;
 
     // 带重试机制的HTTP请求
     private async Task<string> HttpGetWithRetryAsync(string url, int maxRetries = 3)
@@ -39,16 +51,23 @@ public partial class MainWindow : Window
                 var response = await _httpClient!.GetStringAsync(url);
                 return response;
             }
-            catch (HttpRequestException ex) when (i < maxRetries - 1)
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
             {
-                // 网络错误，等待后重试
-                await Task.Delay(1000 * (i + 1)); // 1s, 2s, 3s递增延迟
-                Program.LogError($"HTTP request failed for {url}, retry {i + 1}/{maxRetries}", ex);
-            }
-            catch (Exception)
-            {
-                // 其他异常直接抛出
-                throw;
+                if (ex is HttpRequestException httpEx && httpEx.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    return ""; // 404不重试
+                }
+                
+                if (i < maxRetries - 1)
+                {
+                    // 网络错误或超时，等待后重试
+                    await Task.Delay(1000 * (i + 1)); // 1s, 2s, 3s递增延迟
+                    Program.LogError($"HTTP request failed for {url}, retry {i + 1}/{maxRetries}", ex);
+                }
+                else
+                {
+                    throw;
+                }
             }
         }
         return ""; // 所有重试都失败
@@ -102,6 +121,10 @@ public partial class MainWindow : Window
 
         SetupWindowEvents();
         SetupWatcher();
+
+        // 新增：加载 AI/邮件/定时任务配置并启动调度器
+        LoadSettings();
+        SetupScheduleTimer();
     }
 
     private void SetupWatcher()
@@ -203,13 +226,16 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
 
         var sourceMenu = new MenuItem { Header = "选股数据源" };
-        var emItem = new MenuItem { Header = (_dataSource == "Eastmoney" ? "√ " : "  ") + "东方财富" };
-        emItem.Click += (s, e) => { _dataSource = "Eastmoney"; };
-        var ttItem = new MenuItem { Header = (_dataSource == "Tencent" ? "√ " : "  ") + "腾讯" };
-        ttItem.Click += (s, e) => { _dataSource = "Tencent"; };
+        var emItem = new MenuItem { Header = "东方财富" };
+        emItem.Click += (s, e) => { _dataSource = "Eastmoney"; _ = UpdatePrices(); };
+        var ttItem = new MenuItem { Header = "腾讯" };
+        ttItem.Click += (s, e) => { _dataSource = "Tencent"; _ = UpdatePrices(); };
+        var yhItem = new MenuItem { Header = "雅虎财经" };
+        yhItem.Click += (s, e) => { _dataSource = "Yahoo"; _ = UpdatePrices(); };
         
         sourceMenu.Items.Add(emItem);
         sourceMenu.Items.Add(ttItem);
+        sourceMenu.Items.Add(yhItem);
         menu.Items.Add(sourceMenu);
 
         menu.Items.Add(new Separator());
@@ -217,6 +243,46 @@ public partial class MainWindow : Window
         var clearItem = new MenuItem { Header = "清空全部" };
         clearItem.Click += RemoveStockItem_Click;
         menu.Items.Add(clearItem);
+
+        // ─── 新增：AI 分析 & 配置设置 ───
+        menu.Items.Add(new Separator());
+
+        var aiItem = new MenuItem { Header = "🔬 AI 分析自选股" };
+        // 手动点击：既要看到界面（hideUi: false），又能触发邮件发送（如果配置了的话）
+        aiItem.Click += async (s, e) => await RunAiStockAnalysisAsync(sendEmail: true, hideUi: false);
+        menu.Items.Add(aiItem);
+
+        var settingsMenu = new MenuItem { Header = "⚙️ 配置设置" };
+
+        var geminiCfg = new MenuItem { Header = "🤖 Gemini / 邮件 / 定时任务" };
+        geminiCfg.Click += async (s, e) => await ShowSettingsWindowAsync();
+        settingsMenu.Items.Add(geminiCfg);
+
+        var scheduleToggle = new MenuItem { Header = "⏰ 定时任务" };
+        scheduleToggle.Click += (s, e) =>
+        {
+            _appSettings.ScheduleEnabled = !_appSettings.ScheduleEnabled;
+            SaveSettings();
+            SetupScheduleTimer();
+        };
+        settingsMenu.Items.Add(scheduleToggle);
+
+        menu.Items.Add(settingsMenu);
+
+        // 动态刷新：每次菜单在展开前计算最新的状态表现，避免静态绑定导致的不刷新问题
+        menu.Opening += (s, e) =>
+        {
+            _isContextMenuOpen = true;
+            emItem.Header = (_dataSource == "Eastmoney" ? "√ " : "  ") + "东方财富";
+            ttItem.Header = (_dataSource == "Tencent" ? "√ " : "  ") + "腾讯";
+            yhItem.Header = (_dataSource == "Yahoo" ? "√ " : "  ") + "雅虎财经";
+            scheduleToggle.Header = _appSettings.ScheduleEnabled ? "⏰ 定时任务: 开启 (点击关闭)" : "⏰ 定时任务: 关闭 (点击开启)";
+        };
+
+        menu.Closing += (s, e) => 
+        {
+            _isContextMenuOpen = false;
+        };
 
         return menu;
     }
@@ -241,6 +307,7 @@ public partial class MainWindow : Window
     private void BtnClose_Click(object? sender, RoutedEventArgs e)
     {
         _timer?.Stop();
+        _scheduleTimer?.Stop(); // 新增：关闭定时任务
         _httpClient?.Dispose();
         this.Close();
     }
@@ -524,6 +591,10 @@ public partial class MainWindow : Window
                 // Specifically use SH Composite Index code for Tencent
                 jsonStr = await FetchKLinesFromTencentAsync("sh000001");
             }
+            else if (_dataSource == "Yahoo")
+            {
+                jsonStr = await FetchKLinesFromYahooAsync("000001.SS");
+            }
             else
             {
                 // 使用重试机制获取大盘数据
@@ -601,7 +672,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            string url = "http://82.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12,f14,f2,f3,f8,f9,f20";
+            // 使用 push2 而不是 82.push2 提高稳定性
+            string url = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12,f14,f2,f3,f8,f9,f20";
             string jsonStr = await HttpGetWithRetryAsync(url, maxRetries: 2);
             var root = JObject.Parse(jsonStr);
             var items = root["data"]?["diff"] as JArray;
@@ -620,8 +692,8 @@ public partial class MainWindow : Window
                     double.TryParse(item["f9"]?.ToString(), out double pe) &&
                     double.TryParse(item["f20"]?.ToString(), out double marketCap))
                 {
-                    // Core Filter 1: PE > 0 (移除PE上限限制，只排除负PE)
-                    if (pe <= 0) continue;
+                    // Core Filter 1: PE (放开限制，妖股往往亏损，或者稍微过滤极大负数即可)
+                    // if (pe <= 0) continue;
 
                     // Core Filter 2: 市值 15亿 ~ 500亿 (排除过小或过大的公司)
                     if (marketCap <= 1500000000 || marketCap >= 50000000000) continue;
@@ -684,6 +756,14 @@ public partial class MainWindow : Window
             if (_dataSource == "Tencent")
             {
                 jsonStr = await FetchKLinesFromTencentAsync(symbol);
+            }
+            else if (_dataSource == "Yahoo")
+            {
+                // 雅虎未收录北交所（8/9/4字头），提前拦截以防浪费请求
+                if (symbol.StartsWith("8") || symbol.StartsWith("9") || symbol.StartsWith("4")) return null;
+
+                string suffix = (symbol.StartsWith("6") || symbol.StartsWith("11") || symbol.StartsWith("5")) ? ".SS" : ".SZ";
+                jsonStr = await FetchKLinesFromYahooAsync(symbol + suffix);
             }
             else
             {
@@ -750,23 +830,35 @@ public partial class MainWindow : Window
             // 综合评分系统（初始分100）
             double finalScore = 100.0;
 
-            // --- 优化 2 & 4: 累计涨幅与高位过滤 ---
-            // 核心风控：大A追高胜率极低，直接排除涨幅过大的票
+            // --- 改造为“即将启动、涨跌幅不大”核心过滤 ---
+            // 核心风控：大A追高胜率极低，直接排除涨幅过大的票，寻找蓄势起跳板
             double gain5d = pcts.Skip(count - 5).Sum();
             double gain10d = pcts.Skip(count - 10).Sum();
             double gain20d = pcts.Skip(count - 20).Sum();
 
-            // 根据大盘环境动态调整阈值
-            double maxGain5d = (marketEnv?.IsBullish == true) ? 18.0 : (marketEnv?.IsBearish == true ? 10.0 : 15.0);
-            double maxGain10d = (marketEnv?.IsBullish == true) ? 28.0 : (marketEnv?.IsBearish == true ? 15.0 : 25.0);
+            // 1. 压制顶部涨幅，确保还没起飞 (放宽以适应A股本身的高波动)
+            if (gain5d < -8.0 || gain5d > 12.0) return null;
+            if (gain10d > 20.0) return null;
+            if (gain20d > 35.0 || gain20d < -15.0) return null;
 
-            if (gain5d > maxGain5d || gain10d > maxGain10d || gain20d > 35.0) return null;
+            // 2. 拒绝过去5天内有过明显起飞动作的（如>8%的大单日涨幅）
+            var recent5PctEarlyCheck = pcts.Skip(count - 5).ToList();
+            if (recent5PctEarlyCheck.Any(p => p > 8.0)) return null;
 
-            // 长期高位过滤：偏离半年线(MA200)超过60%说明已进入泡沫期
-            if (adjustedCurrent > ma200 * 1.6) return null;
+            // 3. 核心蓄势特征：近10日纯横盘振幅测算
+            var recent10High = highs.Skip(count - 10).ToList();
+            var recent10Low = lows.Skip(count - 10).ToList();
+            double highest10 = recent10High.Max();
+            double lowest10 = recent10Low.Min();
+            double consolidationRange = (highest10 - lowest10) / lowest10;
+            // A股10天内振幅8%太难了，放宽到18%（大致是一个涨停板以内的上下震荡）
+            if (consolidationRange > 0.18) return null; 
+
+            // 长期高位过滤：偏离半年线(MA200)超过50%说明已进入高位长期盘整区，抛弃
+            if (adjustedCurrent > ma200 * 1.5) return null;
 
             // --- 改进 1: MACD 策略优化（支持水下金叉拐点）---
-            double ema12 = adjustedCurrent, ema26 = adjustedCurrent;
+            double ema12 = closes[0], ema26 = closes[0];
             double dea = 0;
             var difs = new List<double>();
             for (int i = 0; i < count; i++) {
@@ -813,11 +905,11 @@ public partial class MainWindow : Window
             }
             double atr = totalTr / 20;
             double atrRatio = (atr / adjustedCurrent) * 100;
-            // 严格执行计划：1% - 5%
-            if (atrRatio > 5.0 || atrRatio < 1.0) return null;
+            // 缩窄限制：因为我们要找的是底部的票，ATR波幅极度压缩 (容许极低波动0.5起)
+            if (atrRatio > 6.0 || atrRatio < 0.5) return null;
 
-            // ATR在2-3%区间最理想
-            if (atrRatio >= 2.0 && atrRatio <= 3.0) finalScore += 5;
+            // ATR在1-3%区间最理想，死寂状态
+            if (atrRatio <= 3.0) finalScore += 5;
 
             // --- 改进 3: 量能形态识别（新增）---
             // 阶梯放量：近10日成交量呈递增趋势
@@ -871,7 +963,8 @@ public partial class MainWindow : Window
 
             // --- A: 趋势基础 ---
             if (adjustedCurrent < ma200) return null;
-            if (!(ma5 > ma10 && ma10 > ma20)) return null;
+            // 修复矛盾点：要求MA5>MA10>MA20且乖离率小是矛盾的，这里放宽为只要站上MA20且长期多头即可
+            if (adjustedCurrent < ma20 * 0.98) return null;
 
             // --- B: 连续下跌过滤 ---
             var recent5Pct = pcts.Skip(count - 5).ToList();
@@ -880,7 +973,8 @@ public partial class MainWindow : Window
             if (consecutiveDownDays >= 4) return null;
 
             // --- 改进 4: 盈亏比计算（新增风控）---
-            double stopLossPrice = Math.Max(ma20, lows.Skip(count - 10).Max());
+            // 修复：止损价应该是近10日最低价或MA20的较低者（或最低支撑），而不是最高价
+            double stopLossPrice = Math.Min(ma20, lows.Skip(count - 10).Min());
             double targetPrice = adjustedCurrent * 1.08;
             double riskRewardRatio = (targetPrice - adjustedCurrent) / Math.Max(0.01, adjustedCurrent - stopLossPrice);
 
@@ -890,57 +984,56 @@ public partial class MainWindow : Window
             if (riskRewardRatio >= 3.0) finalScore += 10;
             else if (riskRewardRatio >= 2.5) finalScore += 5;
 
-            // --- C: 优化买点逻辑 (收紧偏离度) ---
+            // --- C: 优化买点逻辑 (收紧偏差到极小，要求伏击位置) ---
             string buyPoint = "";
             bool isValidBuyPoint = false;
             double ma20Deviation = (adjustedCurrent / ma20 - 1) * 100;
             double lastPct = recent5Pct.Last();
             double lastVol = vols.Last();
 
-            // 1. 回踩买点：MA20附近±3% 且 缩量
-            if (Math.Abs(ma20Deviation) <= 3 && lastVol < avgVol * 1.15)
+            // 针对蓄势潜伏，压制空间在 MA20 附近 (-4% 到 +6%)
+            if (ma20Deviation < -4.0 || ma20Deviation > 6.0) return null;
+
+            // 1. 静谧潜伏：横盘不跌，量能极度萎缩
+            if (lastVol < avgVol * 0.85 && Math.Abs(lastPct) < 3.0)
             {
-                buyPoint = (lastVol < avgVol * 0.85) ? "回踩缩量" : "回踩买点";
+                buyPoint = "缩量潜伏";
                 isValidBuyPoint = true;
-                finalScore += 15; // 回踩买点最优
+                finalScore += 15;
             }
-            // 2. 突破买点：收紧上限至8%，要求放量明显
-            else if (ma20Deviation > 3 && ma20Deviation <= 8 && lastPct > 2.5 && lastVol > avgVol * 1.5)
+            // 2. 试盘苗头：今天收阳，量能温和放大，开始起启动预演
+            else if (lastPct > 0.5 && lastPct < 4.5 && lastVol > avgVol * 1.1)
             {
-                buyPoint = "突破买点";
+                buyPoint = "温和试盘";
                 isValidBuyPoint = true;
-                finalScore += 8; // 突破买点次之
+                finalScore += 12;
             }
-            // 3. 稳健持有：MA20上方温和放量
-            else if (ma20Deviation > 0 && ma20Deviation <= 5 && lastPct > 0.3 && lastVol > avgVol * 0.9)
+            // 3. 其他平稳横盘状态兜底
+            else if (Math.Abs(lastPct) < 3.0)
             {
-                buyPoint = "多头持有";
+                buyPoint = "横盘蓄势";
                 isValidBuyPoint = true;
-                finalScore += 5; // 多头持有再次
+                finalScore += 5;
             }
 
-            // 执行计划：大盘空头(熊市)时，强制只允许"回踩"类买点，提高防御性
-            if (marketEnv?.IsBearish == true)
-            {
-                if (buyPoint != "回踩买点" && buyPoint != "回踩缩量") return null;
-            }
-
+            // 如果连横盘特征都不符合（当天波动剧烈），直接废弃
             if (!isValidBuyPoint) return null;
 
-            // --- 改进 5: 连板风险智能识别（增强）---
-            int limitUps = pcts.Skip(count - 5).Count(p => p > 9.7);
-            if (limitUps >= 2) return null; // 5日内2板以上直接剔除
-
+            // --- 改进 5: 连板风险识别（已放宽，妖股本身就是连板居多）---
+            // 注释掉原有的严格剔除，让强势股能够进入候选池
+            // int limitUps = pcts.Skip(count - 5).Count(p => p > 9.7);
+            // if (limitUps >= 2) return null; // 5日内2板以上直接剔除
+            
             // 检查连续3日大涨（加速赶顶）
             var recent3Pct = pcts.Skip(count - 3).ToList();
-            if (recent3Pct.Sum() > 25.0) return null;
+            if (recent3Pct.Sum() > 40.0) return null; // 放宽为连续3天涨幅超过40%（比如20cm三连板）才剔除
 
             // 检查连续涨停（今日涨停+昨日涨停）
-            if (recent5Pct.Count >= 2) {
-                bool isTodayLimitUp = lastPct > 9.7;
-                bool isYesterdayLimitUp = recent5Pct[^2] > 9.7;
-                if (isTodayLimitUp && isYesterdayLimitUp) return null; // 连板风险
-            } 
+            // if (recent5Pct.Count >= 2) {
+            //     bool isTodayLimitUp = lastPct > 9.7;
+            //     bool isYesterdayLimitUp = recent5Pct[^2] > 9.7;
+            //     if (isTodayLimitUp && isYesterdayLimitUp) return null; // 连板风险
+            // }
 
             // --- 改进 6: 量价健康度评分 (5日量价一致性) ---
             int volumePriceScore = 0;
@@ -966,7 +1059,10 @@ public partial class MainWindow : Window
             if (volumePriceScore < 0) return null;
 
             // --- D: 活跃度要求 ---
-            if (_dataSource == "Tencent") { if (currentTurnover <= 4.0) return null; }
+            if (_dataSource == "Tencent" || _dataSource == "Yahoo") { 
+                // 放宽腾讯和雅虎源活跃度限制，二者历史K线接口不含换手率
+                if (currentTurnover <= 2.0) return null; 
+            }
             else {
                 var recent5T = turnovers.Skip(count - 5).ToList();
                 if (recent5T.Max() <= 3.5 || recent5T.Average() <= 1.8) return null;
@@ -1001,7 +1097,7 @@ public partial class MainWindow : Window
             if (response.Contains("=")) response = response.Substring(response.IndexOf('=') + 1);
             
             var root = JObject.Parse(response);
-            var dayData = root["data"]?[fullSymbol]?["qfqday"] as JArray;
+            var dayData = root["data"]?[fullSymbol]?["qfqday"] as JArray ?? root["data"]?[fullSymbol]?["day"] as JArray;
             if (dayData == null) return "";
 
             // Convert Tencent format [date, open, close, high, low, vol] 
@@ -1043,6 +1139,74 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Program.LogError($"FetchKLinesFromTencentAsync Error for {symbol}", ex);
+            return "";
+        }
+    }
+
+    private async Task<string> FetchKLinesFromYahooAsync(string symbol)
+    {
+        try
+        {
+            string url = $"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1y";
+            var response = await HttpGetWithRetryAsync(url, maxRetries: 2);
+            if (string.IsNullOrEmpty(response)) return "";
+
+            var root = JObject.Parse(response);
+            var result = root["chart"]?["result"] as JArray;
+            if (result == null || result.Count == 0) return "";
+
+            var timestamps = result[0]?["timestamp"] as JArray;
+            var quote = result[0]?["indicators"]?["quote"] as JArray;
+            
+            if (timestamps == null || quote == null || quote.Count == 0) return "";
+
+            var opens = quote[0]?["open"] as JArray;
+            var closes = quote[0]?["close"] as JArray;
+            var highs = quote[0]?["high"] as JArray;
+            var lows = quote[0]?["low"] as JArray;
+            var volumes = quote[0]?["volume"] as JArray;
+
+            if (opens == null || closes == null || highs == null || lows == null || volumes == null) return "";
+
+            var emKlines = new JArray();
+            int count = Math.Min(timestamps.Count, closes.Count);
+            double prevClose = -1;
+
+            for (int i = 0; i < count; i++)
+            {
+                if (closes[i] == null || closes[i].Type == JTokenType.Null) continue;
+
+                double close = 0;
+                double.TryParse(closes[i]?.ToString(), out close);
+
+                double pct = 0;
+                if (prevClose > 0)
+                {
+                    pct = (close / prevClose - 1) * 100;
+                }
+                prevClose = close;
+
+                long ts = 0;
+                long.TryParse(timestamps[i]?.ToString(), out ts);
+                var dt = DateTimeOffset.FromUnixTimeSeconds(ts).ToString("yyyy-MM-dd");
+
+                string emLine = $"{dt},{opens[i]},{closes[i]},{highs[i]},{lows[i]},{volumes[i]},0,0,{pct:F2},0,0"; 
+                emKlines.Add(emLine);
+            }
+
+            var emRoot = new JObject
+            {
+                ["data"] = new JObject
+                {
+                    ["klines"] = emKlines
+                }
+            };
+
+            return emRoot.ToString();
+        }
+        catch (Exception ex)
+        {
+            Program.LogError($"FetchKLinesFromYahooAsync Error for {symbol}", ex);
             return "";
         }
     }
@@ -1458,6 +1622,11 @@ public partial class MainWindow : Window
 
     private void UpdateUIStructured(List<(string Name, string Code, string Price, string Pct, string Bid, string Ask, string Pred, string FullCode, string Sector)> data)
     {
+        _lastDisplayData = data.Select(d => (d.Name, d.Code, d.Price, d.Pct, d.Sector, d.Pred)).ToList();
+        
+        // 如果当前有右键菜单打开，跳过本次UI重绘，防止菜单被强制关闭断开交互
+        if (_isContextMenuOpen) return;
+
         Dispatcher.UIThread.InvokeAsync(() =>
         {
             var container = this.FindControl<Grid>("StockContainer");
@@ -1560,5 +1729,454 @@ public partial class MainWindow : Window
         });
     }
 
+    // ═══════════════════════════════════════════
+    // AI 配置与业务逻辑区
+    // ═══════════════════════════════════════════
+    
+    private void LoadSettings()
+    {
+        try
+        {
+            string? exePath = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName);
+            string localConfig = Path.Combine(exePath ?? AppContext.BaseDirectory, "appsettings.json");
+            
+            try
+            {
+                if (!File.Exists(localConfig)) File.WriteAllText(localConfig, "{}");
+                _settingsFile = localConfig;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string configDir = Path.Combine(appData, "StockTracker");
+                if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
+                _settingsFile = Path.Combine(configDir, "appsettings.json");
+            }
 
+            if (File.Exists(_settingsFile))
+            {
+                string json = File.ReadAllText(_settingsFile);
+                _appSettings = Newtonsoft.Json.JsonConvert.DeserializeObject<AppSettings>(json) ?? new AppSettings();
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("LoadSettings Failure", ex);
+        }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(_appSettings, Newtonsoft.Json.Formatting.Indented);
+            File.WriteAllText(_settingsFile, json);
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("SaveSettings Failure", ex);
+        }
+    }
+
+    private async Task ShowSettingsWindowAsync()
+    {
+        var settingsWin = new SettingsWindow(_appSettings);
+        await settingsWin.ShowDialog(this);
+        if (settingsWin.Saved)
+        {
+            _appSettings = settingsWin.UpdatedSettings;
+            SaveSettings();
+            SetupScheduleTimer();
+        }
+    }
+
+    private void SetupScheduleTimer()
+    {
+        _scheduleTimer?.Stop();
+        
+        if (!_appSettings.ScheduleEnabled || string.IsNullOrWhiteSpace(_appSettings.ScheduleTime))
+            return;
+
+        if (!TimeSpan.TryParseExact(_appSettings.ScheduleTime, "h\\:mm", null, out TimeSpan targetTime))
+        {
+            if (!TimeSpan.TryParse(_appSettings.ScheduleTime, out targetTime))
+                return;
+        }
+
+        _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _scheduleTimer.Tick += async (s, e) =>
+        {
+            var now = DateTime.Now;
+            if (now.Date > _lastScheduleRunDate.Date && 
+                now.Hour == targetTime.Hours && 
+                now.Minute == targetTime.Minutes)
+            {
+                _lastScheduleRunDate = now.Date;
+                await RunAiStockAnalysisAsync(sendEmail: true, hideUi: true); // 后台定时执行，不打扰使用者屏幕（静默发信）
+            }
+        };
+        _scheduleTimer.Start();
+    }
+
+    private async Task RunAiStockAnalysisAsync(bool sendEmail, bool hideUi = false)
+    {
+        if (_isAiAnalysisRunning) return;
+
+        if (string.IsNullOrWhiteSpace(_appSettings.GeminiApiKey))
+        {
+            Dispatcher.UIThread.Post(() => 
+            {
+                var tip = new AnalysisResultWindow("配置错误", "请先右键选择 [⚙️ 配置设置] 中配置 Gemini API Key！");
+                tip.Show(this);
+            });
+            return;
+        }
+
+        _isAiAnalysisRunning = true;
+        AnalysisResultWindow? resultWindow = null;
+        
+        if (!hideUi)
+        {
+            Dispatcher.UIThread.Post(() => 
+            {
+                resultWindow = new AnalysisResultWindow("AI 个股分析中", "正在抓取自选股行情数据并调用 Gemini AI，请稍候...");
+                resultWindow.Show(this);
+            });
+        }
+
+        try
+        {
+            // 构建分析 Prompt：全面对齐专业决策仪表盘的版面要求
+            var sb = new StringBuilder();
+            sb.AppendLine("你是一位顶级的A股/港股交易分析师，负责生成专业的【决策仪表盘】深度分析研报。");
+            sb.AppendLine("【核心交易原则】严进策略（绝不追高）、重点看均线（突破或回踩体系）、寻找低风险买点、规避放量滞涨。");
+            sb.AppendLine("【护栏容错准则】如果发现财报数据(如ROE/净利/营收等)或盘口数据为 0 甚至为空，说明该股票当天的接口抓取被限流断层，切勿主观臆断该公司破产或倒闭，请忽略由于0值导致的数据，通过其他维度分析！");
+            sb.AppendLine("【强制输出格式】请你**必须完全复刻**以下Markdown版面结构进行内容输出，决不允许废话，直接按此模板吐出内容：");
+            sb.AppendLine("");
+            sb.AppendLine("# 🎯 " + DateTime.Now.ToString("yyyy-MM-dd") + " 决策仪表盘");
+            sb.AppendLine("| 共分析 X 只股票 | 🟢 买入:X 🟡 观望:X 🔴 卖出:X |");
+            sb.AppendLine("|---|---|");
+            sb.AppendLine("");
+            sb.AppendLine("## 📊 分析结果摘要");
+            sb.AppendLine("(用列表一句话总结每只股票的买卖建议，如 🟢 **科力远**: 买入 | 评分 85 | 强烈看多)");
+            sb.AppendLine("");
+            sb.AppendLine("---");
+            sb.AppendLine("# 🟢 [股票名称] ([代码])");
+            sb.AppendLine("### 📋 重要信息速览");
+            sb.AppendLine("(用2句话概括情绪面和业绩预期)");
+            sb.AppendLine("");
+            sb.AppendLine("### 🚨 风险警报 / ✨ 利好催化:");
+            sb.AppendLine("- 风险点1...");
+            sb.AppendLine("- 利好1...");
+            sb.AppendLine("");
+            sb.AppendLine("### 📌 核心结论");
+            sb.AppendLine("🟢 买入/🟡 观望/🔴 卖出 | 看多/看空");
+            sb.AppendLine("> 一句话决策: (如：典型多头排列且乖离率极低，是理想介入点)");
+            sb.AppendLine("");
+            sb.AppendLine("⏰ 时效性: 立即行动 / 持续观察");
+            sb.AppendLine("");
+            sb.AppendLine("| 持仓情况 | 操作建议 |");
+            sb.AppendLine("|---|---|");
+            sb.AppendLine("| 🈳 空仓者 | 在XXX区间分批建仓... |");
+            sb.AppendLine("| 💼 持仓者 | 坚定持股待涨，若跌破XXX则... |");
+            sb.AppendLine("");
+            sb.AppendLine("### 📊 数据透视与作战计划");
+            sb.AppendLine("> 根据价格与技术状态，推演估算以下关键阵地：(强烈提示：制定下方买点与止损位时，请严格参考传入的【当前平均持仓成本】和【MA10/MA20】等硬核均线基准)");
+            sb.AppendLine("");
+            sb.AppendLine("| 操作点位 | 当前参考价 |");
+            sb.AppendLine("|---|---|");
+            sb.AppendLine("| 🎯 理想买入点 | ... |");
+            sb.AppendLine("| 🔵 次优买入点 | ... |");
+            sb.AppendLine("| 🔴 止损位 | ... |");
+            sb.AppendLine("| 🚀 目标位 | ... |");
+            sb.AppendLine("");
+            sb.AppendLine("💰 仓位与风控建议 / ✅ 检查清单 (用打勾✅表示)");
+            sb.AppendLine("");
+            sb.AppendLine("---");
+            
+            var marketIndices = await StockDataProvider.FetchMarketIndexAsync();
+            if (marketIndices != null && marketIndices.Count > 0)
+            {
+                sb.AppendLine("### 🌍 宏观大盘环境 (参考大势)");
+                foreach (var idx in marketIndices)
+                {
+                    string sign = idx.PctChange >= 0 ? "+" : "";
+                    sb.AppendLine($"- {idx.Name}: {idx.Price:F2} (涨跌幅: {sign}{idx.PctChange:F2}%)");
+                }
+                sb.AppendLine("[AI系统提示]: 请首先评估以上大势。若大盘暴跌请提醒用户重点寻找防守位。");
+                sb.AppendLine("");
+            }
+
+            sb.AppendLine("\n以下是最新全网实时抓取的高级技术面、量价结构、筹码分布与舆情新闻数据，请基于此进行深度推理：\n");
+            foreach (var code in _stocks)
+            {
+                var displayItem = _lastDisplayData.FirstOrDefault(d => d.Code != null && d.Code.Contains(code));
+                string sector = displayItem.Sector ?? "未知板块";
+                string stockName = displayItem.Name ?? $"股票{code}";
+
+                var ctx = await StockDataProvider.FetchDeepDataAsync(code, _appSettings.TavilyApiKey);
+                if (string.IsNullOrEmpty(ctx.Name)) ctx.Name = stockName;
+                
+                sb.AppendLine($"### 📊 股票基础信息: {ctx.Name} ({code}) - 所属板块: {sector}");
+                
+                sb.AppendLine("#### 📈 技术面与实时行情");
+                sb.AppendLine($"- **今日价格**: 现价 {ctx.CurrentPrice:F2} 元 (涨跌幅 {ctx.PctChange:F2}%)");
+                sb.AppendLine($"- **盘口量能**: 量比 {ctx.VolumeRatio:F2} | 换手率 {ctx.TurnoverRate:F2}%");
+                sb.AppendLine($"- **昨日异动对比**: 今日成交量是昨日的 {ctx.VolumeChangeRatio:F2} 倍 (重点:>2.0警惕爆量)，价格变化 {ctx.PriceChangeRatio:F2}%");
+                
+                sb.AppendLine("#### 🏦 财报与核心价值面 (深度定性护城河)");
+                sb.AppendLine($"- **常规估值**: 动态市盈率(PE) {ctx.PE:F2} | 市净率(PB) {ctx.PB:F2} | 总市值 {ctx.TotalMarketValue:F2} 亿");
+                sb.AppendLine($"- **盈利机器**: ROE(净资产收益率) {ctx.ROE:F2}% | 归母净利润 {ctx.NetProfit:F2} 亿 | 总营收 {ctx.OperatingRevenue:F2} 亿");
+                sb.AppendLine($"- **血脉现金**: 每股经营现金流 {ctx.OperatingCashFlowPerShare:F2} 元");
+                
+                sb.AppendLine("#### 📉 均线系统与趋势探测");
+                sb.AppendLine($"- **各大均线**: MA5={ctx.MA5:F2}, MA10={ctx.MA10:F2}, MA20={ctx.MA20:F2}");
+                
+                string biasWarning = ctx.BiasMA5 > 5 ? "🚨 偏离极大，严禁追高！" : "✅ 乖离安全";
+                sb.AppendLine($"- **核心位置预警 (乖离率)**: 本股较 MA5 乖离率为 {ctx.BiasMA5:F2}% ({biasWarning})，较 MA10 乖离率为 {ctx.BiasMA10:F2}%");
+                sb.AppendLine($"- **形态判研**: 当前呈现【{ctx.MAAlignment}】");
+                
+                sb.AppendLine("#### 🌊 筹码博弈与主力资金 (由本地高密度仿真算力生成)");
+                string flowSign = ctx.MainForceNetInflow >= 0 ? "+" : "";
+                sb.AppendLine($"- **主力动向**: 今日主力大单净流入 {flowSign}{ctx.MainForceNetInflow / 10000.0:F2} 万元");
+                sb.AppendLine($"- **筹码结构透视**: (基于近200日高斯K线仿真)");
+                sb.AppendLine($"  - 当前平均持仓成本约: {ctx.ChipAvgCost:F2} 元");
+                sb.AppendLine($"  - 获利盘比例: {ctx.ProfitRatio:F2}% (重点：若超过85%请拉响顶部派发高危警报！若低于15%说明大多被套牢)");
+                sb.AppendLine($"  - 90%筹码集中度: {ctx.ChipConcentration90:F2}% (集中度<15%表示单峰极度密集，博弈性强；越大表示越发散)");
+
+                sb.AppendLine("#### 📰 最新舆情与催化剂情报");
+                if (ctx.LatestNews.Count > 0)
+                {
+                    sb.AppendLine("请重点评判以下近3日的新闻是否存在重大利空或利好：");
+                    foreach (var news in ctx.LatestNews)
+                    {
+                        sb.AppendLine($"- {news}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("- 未搜索到近期相关特别突发新闻，请主要依靠盘口量价、纯技术面与资金博弈进行推演。");
+                }
+                sb.AppendLine("---");
+            }
+
+            string prompt = sb.ToString();
+
+            // 请求 Gemini
+            string aiResponse = await CallGeminiApiAsync(prompt);
+            string finalReport = $"分析执行时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
+
+            // 处理结果弹窗展示
+            if (!hideUi)
+            {
+                Dispatcher.UIThread.Post(() => 
+                {
+                    if (resultWindow != null) resultWindow.Close(); 
+                    var newWin = new AnalysisResultWindow("AI 个股深度诊断报告", finalReport);
+                    newWin.Show(this);
+                });
+            }
+
+            // 处理结果邮件发送
+            if (sendEmail)
+            {
+                await SendEmailAsync($"[StockTracker] 自选股 AI 盘面分析 {DateTime.Now:yyyy-MM-dd}", finalReport);
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("RunAiStockAnalysisAsync Failure", ex);
+            Dispatcher.UIThread.Post(() => 
+            {
+                if (resultWindow != null) resultWindow.Close();
+                if (!hideUi)
+                {
+                    new AnalysisResultWindow("AI 分析报错", $"发生异常：\n{ex.Message}").Show(this);
+                }
+                else
+                {
+                    new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{ex.Message}").Show(this);
+                }
+            });
+        }
+        finally
+        {
+            _isAiAnalysisRunning = false;
+        }
+    }
+
+    private async Task<string> CallGeminiApiAsync(string prompt)
+    {
+        string apiKey = _appSettings.GeminiApiKey;
+        string[] models = { "gemini-3-flash-preview", "gemini-2.5-flash" };
+
+        var payload = new
+        {
+            contents = new[]
+            {
+                new { parts = new[] { new { text = prompt } } }
+            }
+        };
+        string payloadJson = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
+
+        using var client = new HttpClient();
+        client.Timeout = TimeSpan.FromSeconds(60);
+
+        foreach (string model in models)
+        {
+            string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+            var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+            var response = await client.PostAsync(endpoint, content);
+            string rawJson = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Program.LogError($"Gemini API Error [{model}]", new Exception(rawJson));
+                // 继续尝试下一个模型
+                continue;
+            }
+
+            try
+            {
+                var root = JObject.Parse(rawJson);
+                var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
+                return text ?? "AI 返回结果为空";
+            }
+            catch (Exception e)
+            {
+                return $"解析 AI 响应失败: {e.Message}\n原始内容: {rawJson}";
+            }
+        }
+
+        return "AI 请求失败：所有可用模型均无法响应，请检查 API Key 或网络连接。";
+    }
+
+    private async Task SendEmailAsync(string subject, string body)
+    {
+        if (string.IsNullOrWhiteSpace(_appSettings.EmailUser) || string.IsNullOrWhiteSpace(_appSettings.EmailPassword))
+        {
+            Dispatcher.UIThread.Post(() => 
+            {
+                new AnalysisResultWindow("邮件发送中止", "请至少在配置中填写【发件邮箱】和【授权码/密码】").Show(this);
+            });
+            return;
+        }
+
+        // 自动提取配置（构建平滑用户体验）
+        string host = (_appSettings.EmailSmtpHost ?? "").Trim();
+        int port = _appSettings.EmailSmtpPort;
+
+        // 如果用户没填 SMTP 服务器，自动根据邮箱后缀识别
+        if (string.IsNullOrWhiteSpace(host) && _appSettings.EmailUser.Contains("@"))
+        {
+            string domain = _appSettings.EmailUser.Split('@').Last().ToLower();
+            switch (domain)
+            {
+                case "qq.com":
+                case "foxmail.com":
+                    host = "smtp.qq.com"; port = 465; break; // MailKit 完美原生支持 465 隐式SSL
+                case "163.com":
+                    host = "smtp.163.com"; port = 465; break;
+                case "126.com":
+                    host = "smtp.126.com"; port = 465; break;
+                case "gmail.com":
+                    host = "smtp.gmail.com"; port = 465; break;
+                case "outlook.com":
+                case "hotmail.com":
+                case "live.com":
+                    host = "smtp-mail.outlook.com"; port = 587; break; // Outlook 使用 587 STARTTLS
+                case "aliyun.com":
+                    host = "smtp.aliyun.com"; port = 465; break;
+                default:
+                    host = $"smtp.{domain}"; port = 465; break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            Dispatcher.UIThread.Post(() => 
+            {
+                new AnalysisResultWindow("邮件发送失败", "未能自动识别该邮箱类型的SMTP服务器。\n请在【配置设置】中手动填写您的 SMTP 服务器地址（如 smtp.xx.com）。").Show(this);
+            });
+            return;
+        }
+
+        try
+        {
+            // 采用 MailKit.MimeMessage 全新构建（解决一切中文 Header 和编码风控问题）
+            var message = new MimeKit.MimeMessage();
+            message.From.Add(new MimeKit.MailboxAddress("StockTracker助手", _appSettings.EmailUser));
+            
+            var targets = _appSettings.EmailTo.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var t in targets) 
+                message.To.Add(new MimeKit.MailboxAddress(t.Trim(), t.Trim()));
+            
+            message.Subject = subject;
+
+            var bodyBuilder = new MimeKit.BodyBuilder();
+            
+            // 使用 Markdig 完美解析 Markdown 为 HTML 结构
+            var pipeline = new Markdig.MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+            string parsedHtml = Markdig.Markdown.ToHtml(body, pipeline);
+            
+            // 注入美化 CSS 样式表
+            string cssStyle = @"
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; line-height: 1.5; color: #24292e; font-size: 14px; padding: 15px; max-width: 900px; margin: 0 auto; }
+                h1 { font-size: 20px; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 1.2em; margin-bottom: 0.8em; color: #0366d6; }
+                h2 { font-size: 18px; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 1.0em; margin-bottom: 0.6em; }
+                h3 { font-size: 16px; margin-top: 0.8em; margin-bottom: 0.4em; }
+                p { margin-top: 0; margin-bottom: 8px; }
+                table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; display: block; overflow-x: auto; }
+                th, td { border: 1px solid #dfe2e5; padding: 6px 10px; text-align: left; }
+                th { background-color: #f6f8fa; font-weight: 600; }
+                tr:nth-child(2n) { background-color: #f8f8f8; }
+                blockquote { color: #6a737d; border-left: 0.25em solid #dfe2e5; padding: 0 1em; margin: 0 0 10px 0; }
+                hr { height: 0.25em; padding: 0; margin: 16px 0; background-color: #e1e4e8; border: 0; }
+                ul, ol { padding-left: 20px; margin-bottom: 10px; }
+                li { margin: 2px 0; }
+                code { background-color: rgba(27,31,35,0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: Consolas, 'Liberation Mono', monospace; font-size: 85%; }
+                strong { font-weight: 600; }
+            ";
+
+            string fullHtmlDocument = $@"
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <style>{cssStyle}</style>
+            </head>
+            <body>{parsedHtml}</body>
+            </html>";
+
+            bodyBuilder.HtmlBody = fullHtmlDocument;
+            message.Body = bodyBuilder.ToMessageBody();
+
+            using var client = new MailKit.Net.Smtp.SmtpClient();
+            client.Timeout = 30000;
+            
+            // 智能加密策略: 465使用隐式SSL，其他端口尝试STARTTLS
+            var options = port == 465 
+                ? MailKit.Security.SecureSocketOptions.SslOnConnect 
+                : MailKit.Security.SecureSocketOptions.StartTls;
+
+            // 连接并认证
+            await client.ConnectAsync(host, port > 0 ? port : 465, options);
+            await client.AuthenticateAsync(_appSettings.EmailUser, _appSettings.EmailPassword);
+            
+            // 发送邮件
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+            
+            // 已取消发送成功的弹窗，遵从“成功不需要提示”的静默体验原则
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("MailKit Send Failure", ex);
+            Dispatcher.UIThread.Post(() => 
+            {
+                string realReason = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                new AnalysisResultWindow("邮件发送拦截", $"异常详情：\n{realReason}\n\n【排障指南】\n1. 请检查您的 授权码 是否输入错误，或邮箱是否开启了SMTP服务。\n2. 如果是云服务器，请确认 465 端口是否在安全组中被放行。").Show(this);
+            });
+        }
+    }
 }
