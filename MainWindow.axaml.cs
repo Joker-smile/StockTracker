@@ -1865,10 +1865,9 @@ public partial class MainWindow : Window
 
             var marketCondition = MarketEnvironmentAnalyzer.AnalyzeMarketCondition(indexDataList);
 
-            // === 第二步：获取股票数据并质量验证 ===
-            var enhancedScores = new List<ImprovedWinRateScoring.EnhancedStockScore>();
-            var stockDataContexts = new Dictionary<string, StockDeepAnalysisContext>();
-            var dataQualityResults = new Dictionary<string, DataQualityValidator.ValidationResult>();
+            // === 第二步：获取股票数据并量化评分 ===
+            var stockScores = new List<WinRatePredictionModel.StockScore>();
+            var stockDataContexts = new Dictionary<string, (StockDeepAnalysisContext ctx, string sector)>();
 
             foreach (var code in _stocks)
             {
@@ -1879,58 +1878,64 @@ public partial class MainWindow : Window
                 var ctx = await StockDataProvider.FetchDeepDataAsync(code, _appSettings.TavilyApiKey);
                 if (string.IsNullOrEmpty(ctx.Name)) ctx.Name = stockName;
 
-                // 数据质量验证
-                var qualityResult = DataQualityValidator.ValidateStockData(ctx);
-                dataQualityResults[code] = qualityResult;
+                // 保存数据供后续使用
+                stockDataContexts[code] = (ctx, sector);
 
-                // 只对质量合格的数据进行评分
-                if (DataQualityValidator.IsSuitableForAIAnalysis(qualityResult))
-                {
-                    // 保存数据供后续使用
-                    stockDataContexts[code] = ctx;
-
-                    // 使用增强的量化评分系统
-                    var enhancedScore = ImprovedWinRateScoring.CalculateEnhancedScore(ctx, marketCondition);
-                    enhancedScores.Add(enhancedScore);
-                }
+                // 使用量化评分系统（保持原有的）
+                var score = WinRatePredictionModel.CalculateWinRateScore(ctx, marketCondition);
+                stockScores.Add(score);
             }
 
-            // === 第三步：获取历史表现数据（用于优化建议） ===
-            var backtestResult = AdviceTracker.CalculateBackTestResults(30); // 最近30天
+            // === 第三步：构建优化的AI提示词 ===
+            string prompt = OptimizedAiPromptBuilder.BuildAnalysisPrompt(stockScores, marketCondition, indexDataList);
 
-            // === 第四步：构建增强的AI提示词 ===
-            string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
-                enhancedScores,
-                marketCondition,
-                indexDataList,
-                stockDataContexts,
-                dataQualityResults,
-                backtestResult.TotalTrades > 0 ? backtestResult : null);
-
-            // === 第五步：记录建议到追踪系统 ===
-            foreach (var enhancedScore in enhancedScores.Where(s => s.ActionAdvice.Contains("买入")))
+            // === 第四步：添加详细的股票数据供AI分析 ===
+            prompt += "\n\n【详细股票数据】\n";
+            foreach (var kvp in stockDataContexts)
             {
-                if (stockDataContexts.ContainsKey(enhancedScore.StockCode))
+                string code = kvp.Key;
+                var ctx = kvp.Value.ctx;
+                string sector = kvp.Value.sector;
+
+                // 数据质量检查
+                bool dataQualityIssue = ctx.CurrentPrice <= 0 || (ctx.MA5 <= 0 && ctx.MA10 <= 0);
+                if (dataQualityIssue)
                 {
-                    var ctx = stockDataContexts[enhancedScore.StockCode];
-                    var record = new AdviceTracker.AdviceRecord
-                    {
-                        AdviceDate = DateTime.Now,
-                        StockCode = enhancedScore.StockCode,
-                        StockName = enhancedScore.StockName,
-                        Action = "buy",
-                        RecommendedPrice = enhancedScore.SuggestedBuyPrice > 0 ? enhancedScore.SuggestedBuyPrice : (decimal)ctx.CurrentPrice,
-                        StopLossPrice = enhancedScore.StopLossPrice,
-                        TargetPrice = enhancedScore.TargetPrice,
-                        ExpectedWinRate = enhancedScore.WinProbability,
-                        OverallScore = enhancedScore.OverallScore,
-                        TechnicalScore = enhancedScore.TechnicalScore,
-                        FundamentalScore = enhancedScore.FundamentalScore,
-                        FundFlowScore = enhancedScore.FundFlowScore,
-                        MarketCondition = marketCondition
-                    };
-                    AdviceTracker.RecordAdvice(record);
+                    prompt += $"### ⚠️ 数据异常: {ctx.Name} ({code}) - 部分数据获取失败，请谨慎分析\n\n";
+                    continue;
                 }
+
+                prompt += $"### 📊 股票详细分析: {ctx.Name} ({code}) - {sector}\n";
+
+                prompt += "#### 📈 实时技术面\n";
+                prompt += $"- 现价 {ctx.CurrentPrice:F2}元 (涨跌{ctx.PctChange:F2}%) | 量比{ctx.VolumeRatio:F2} | 换手{ctx.TurnoverRate:F2}%\n";
+                prompt += $"- 均线: MA5={ctx.MA5:F2} MA10={ctx.MA10:F2} MA20={ctx.MA20:F2}\n";
+                prompt += $"- 乖离率: MA5={ctx.BiasMA5:F2}% MA10={ctx.BiasMA10:F2}% | 形态:{ctx.MAAlignment}\n";
+
+                prompt += "#### 🏦 基本面\n";
+                prompt += $"- 估值: PE={ctx.PE:F2} PB={ctx.PB:F2} 市值={ctx.TotalMarketValue:F2}亿\n";
+                prompt += $"- 盈利: ROE={ctx.ROE:F2}% 净利润={ctx.NetProfit:F2}亿 营收={ctx.OperatingRevenue:F2}亿\n";
+                prompt += $"- 现金流: {ctx.OperatingCashFlowPerShare:F2}元/股\n";
+
+                prompt += "#### 🌊 资金面\n";
+                string flowSign = ctx.MainForceNetInflow >= 0 ? "+" : "";
+                prompt += $"- 主力: {flowSign}{ctx.MainForceNetInflow/10000:F2}万 | 换手率: {ctx.TurnoverRate:F2}%\n";
+                prompt += $"- 筹码: 成本{ctx.ChipAvgCost:F2}元 获利盘{ctx.ProfitRatio:F2}% 集中度{ctx.ChipConcentration90:F2}%\n";
+
+                prompt += "#### 📰 舆情面\n";
+                if (ctx.LatestNews.Count > 0)
+                {
+                    foreach (var news in ctx.LatestNews.Take(3))
+                    {
+                        prompt += $"- {news}\n";
+                    }
+                }
+                else
+                {
+                    prompt += "- 无重大新闻\n";
+                }
+
+                prompt += "---\n";
             }
 
             // 请求 Gemini
