@@ -71,3 +71,4 @@ _ReSharper*/
 *.resx.bak
 .idea
 .claude
+publish/win-x64/appsettings.json
