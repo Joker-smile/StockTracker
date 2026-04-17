@@ -57,13 +57,6 @@ public class AnalysisResultWindow : Window
             }
         };
 
-        // 拖动
-        titleBar.PointerPressed += (_, e) =>
-        {
-            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-                BeginMoveDrag(e);
-        };
-
         var textBox = new TextBox
         {
             Text = content,
@@ -75,7 +68,9 @@ public class AnalysisResultWindow : Window
             FontFamily = new FontFamily("Courier New"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(12)
+            Padding = new Thickness(12),
+            // 禁用文本选择时的光标变化，让拖动体验更自然
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeAll)
         };
 
         var scrollViewer = new ScrollViewer
@@ -102,6 +97,24 @@ public class AnalysisResultWindow : Window
             BorderThickness = new Thickness(1),
             Child = mainLayout
         };
+
+        // 全窗口任意位置拖动
+        // 使用 Tunnel（隧道）策略：事件自上而下传递，Window 先于 TextBox 收到
+        // 这样 TextBox 消费事件之前，我们已经调用了 BeginMoveDrag
+        AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+            // 沿逻辑树向上检测，排除 Button（关闭按钮）和 ScrollBar（滚动条）
+            var src = e.Source as StyledElement;
+            while (src != null)
+            {
+                if (src is Button || src is Avalonia.Controls.Primitives.ScrollBar) return;
+                src = src.Parent as StyledElement;
+            }
+
+            BeginMoveDrag(e);
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         // Escape 键关闭
         KeyDown += (_, e) =>
