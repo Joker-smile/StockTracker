@@ -39,7 +39,8 @@ public class AnalysisResultWindow : Window
                         Foreground = Brush.Parse("#FFFFCC00"),
                         FontWeight = FontWeight.Bold,
                         FontSize = 13,
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = VerticalAlignment.Center,
+                        IsHitTestVisible = false  // 不拦截鼠标事件，确保点击标题文字也能拖动窗口
                     },
                     new StackPanel
                     {

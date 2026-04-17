@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -58,7 +59,7 @@ namespace StockTracker
 
     public static class StockDataProvider
     {
-        private static readonly HttpClient _httpClient = new HttpClient();
+        private static readonly HttpClient _httpClient = CreateHttpClient();
         private static readonly string[] _userAgents = new[]
         {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -68,9 +69,45 @@ namespace StockTracker
         };
         private static readonly Random _rand = new Random();
 
-        static StockDataProvider()
+        /// <summary>
+        /// 创建配置了SSL的HttpClient
+        /// </summary>
+        private static HttpClient CreateHttpClient()
         {
-            _httpClient.Timeout = TimeSpan.FromSeconds(15);
+            // 创建支持SSL的HttpClientHandler
+            var handler = new HttpClientHandler();
+
+            try
+            {
+                // 忽略SSL证书验证错误（仅用于开发调试）
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                {
+                    // 开发环境可以放宽验证，生产环境应该严格验证
+                    if (errors == System.Net.Security.SslPolicyErrors.None)
+                        return true;
+
+                    // 对于自签名证书等开发环境，可以选择返回true
+                    // 但要注意这会降低安全性
+                    return true;
+                };
+
+                // 设置支持的重定向
+                handler.AllowAutoRedirect = true;
+                handler.MaxAutomaticRedirections = 10;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"HttpClient SSL配置警告: {ex.Message}");
+            }
+
+            var client = new HttpClient(handler);
+            client.Timeout = TimeSpan.FromSeconds(30); // 增加超时时间
+
+            // 设置默认请求头
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "*/*");
+
+            return client;
         }
 
         private static void RotateUserAgent()

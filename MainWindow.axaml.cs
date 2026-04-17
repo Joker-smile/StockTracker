@@ -1846,68 +1846,30 @@ public partial class MainWindow : Window
 
         try
         {
-            // 构建分析 Prompt：全面对齐专业决策仪表盘的版面要求
-            var sb = new StringBuilder();
-            sb.AppendLine("你是一位顶级的A股/港股交易分析师，负责生成专业的【决策仪表盘】深度分析研报。");
-            sb.AppendLine("【核心交易原则】严进策略（绝不追高）、重点看均线（突破或回踩体系）、寻找低风险买点、规避放量滞涨。");
-            sb.AppendLine("【护栏容错准则】如果发现财报数据(如ROE/净利/营收等)或盘口数据为 0 甚至为空，说明该股票当天的接口抓取被限流断层，切勿主观臆断该公司破产或倒闭，请忽略由于0值导致的数据，通过其他维度分析！");
-            sb.AppendLine("【强制输出格式】请你**必须完全复刻**以下Markdown版面结构进行内容输出，决不允许废话，直接按此模板吐出内容：");
-            sb.AppendLine("");
-            sb.AppendLine("# 🎯 " + DateTime.Now.ToString("yyyy-MM-dd") + " 决策仪表盘");
-            sb.AppendLine("| 共分析 X 只股票 | 🟢 买入:X 🟡 观望:X 🔴 卖出:X |");
-            sb.AppendLine("|---|---|");
-            sb.AppendLine("");
-            sb.AppendLine("## 📊 分析结果摘要");
-            sb.AppendLine("(用列表一句话总结每只股票的买卖建议，如 🟢 **科力远**: 买入 | 评分 85 | 强烈看多)");
-            sb.AppendLine("");
-            sb.AppendLine("---");
-            sb.AppendLine("# 🟢 [股票名称] ([代码])");
-            sb.AppendLine("### 📋 重要信息速览");
-            sb.AppendLine("(用2句话概括情绪面和业绩预期)");
-            sb.AppendLine("");
-            sb.AppendLine("### 🚨 风险警报 / ✨ 利好催化:");
-            sb.AppendLine("- 风险点1...");
-            sb.AppendLine("- 利好1...");
-            sb.AppendLine("");
-            sb.AppendLine("### 📌 核心结论");
-            sb.AppendLine("🟢 买入/🟡 观望/🔴 卖出 | 看多/看空");
-            sb.AppendLine("> 一句话决策: (如：典型多头排列且乖离率极低，是理想介入点)");
-            sb.AppendLine("");
-            sb.AppendLine("⏰ 时效性: 立即行动 / 持续观察");
-            sb.AppendLine("");
-            sb.AppendLine("| 持仓情况 | 操作建议 |");
-            sb.AppendLine("|---|---|");
-            sb.AppendLine("| 🈳 空仓者 | 在XXX区间分批建仓... |");
-            sb.AppendLine("| 💼 持仓者 | 坚定持股待涨，若跌破XXX则... |");
-            sb.AppendLine("");
-            sb.AppendLine("### 📊 数据透视与作战计划");
-            sb.AppendLine("> 根据价格与技术状态，推演估算以下关键阵地：(强烈提示：制定下方买点与止损位时，请严格参考传入的【当前平均持仓成本】和【MA10/MA20】等硬核均线基准)");
-            sb.AppendLine("");
-            sb.AppendLine("| 操作点位 | 当前参考价 |");
-            sb.AppendLine("|---|---|");
-            sb.AppendLine("| 🎯 理想买入点 | ... |");
-            sb.AppendLine("| 🔵 次优买入点 | ... |");
-            sb.AppendLine("| 🔴 止损位 | ... |");
-            sb.AppendLine("| 🚀 目标位 | ... |");
-            sb.AppendLine("");
-            sb.AppendLine("💰 仓位与风控建议 / ✅ 检查清单 (用打勾✅表示)");
-            sb.AppendLine("");
-            sb.AppendLine("---");
-            
+            // === 第一步：获取市场环境 ===
             var marketIndices = await StockDataProvider.FetchMarketIndexAsync();
+            var indexDataList = new List<MarketEnvironmentAnalyzer.MarketIndexData>();
+
             if (marketIndices != null && marketIndices.Count > 0)
             {
-                sb.AppendLine("### 🌍 宏观大盘环境 (参考大势)");
                 foreach (var idx in marketIndices)
                 {
-                    string sign = idx.PctChange >= 0 ? "+" : "";
-                    sb.AppendLine($"- {idx.Name}: {idx.Price:F2} (涨跌幅: {sign}{idx.PctChange:F2}%)");
+                    indexDataList.Add(new MarketEnvironmentAnalyzer.MarketIndexData
+                    {
+                        Name = idx.Name,
+                        Price = idx.Price,
+                        PctChange = idx.PctChange
+                    });
                 }
-                sb.AppendLine("[AI系统提示]: 请首先评估以上大势。若大盘暴跌请提醒用户重点寻找防守位。");
-                sb.AppendLine("");
             }
 
-            sb.AppendLine("\n以下是最新全网实时抓取的高级技术面、量价结构、筹码分布与舆情新闻数据，请基于此进行深度推理：\n");
+            var marketCondition = MarketEnvironmentAnalyzer.AnalyzeMarketCondition(indexDataList);
+
+            // === 第二步：获取股票数据并质量验证 ===
+            var enhancedScores = new List<ImprovedWinRateScoring.EnhancedStockScore>();
+            var stockDataContexts = new Dictionary<string, StockDeepAnalysisContext>();
+            var dataQualityResults = new Dictionary<string, DataQualityValidator.ValidationResult>();
+
             foreach (var code in _stocks)
             {
                 var displayItem = _lastDisplayData.FirstOrDefault(d => d.Code != null && d.Code.Contains(code));
@@ -1916,51 +1878,60 @@ public partial class MainWindow : Window
 
                 var ctx = await StockDataProvider.FetchDeepDataAsync(code, _appSettings.TavilyApiKey);
                 if (string.IsNullOrEmpty(ctx.Name)) ctx.Name = stockName;
-                
-                sb.AppendLine($"### 📊 股票基础信息: {ctx.Name} ({code}) - 所属板块: {sector}");
-                
-                sb.AppendLine("#### 📈 技术面与实时行情");
-                sb.AppendLine($"- **今日价格**: 现价 {ctx.CurrentPrice:F2} 元 (涨跌幅 {ctx.PctChange:F2}%)");
-                sb.AppendLine($"- **盘口量能**: 量比 {ctx.VolumeRatio:F2} | 换手率 {ctx.TurnoverRate:F2}%");
-                sb.AppendLine($"- **昨日异动对比**: 今日成交量是昨日的 {ctx.VolumeChangeRatio:F2} 倍 (重点:>2.0警惕爆量)，价格变化 {ctx.PriceChangeRatio:F2}%");
-                
-                sb.AppendLine("#### 🏦 财报与核心价值面 (深度定性护城河)");
-                sb.AppendLine($"- **常规估值**: 动态市盈率(PE) {ctx.PE:F2} | 市净率(PB) {ctx.PB:F2} | 总市值 {ctx.TotalMarketValue:F2} 亿");
-                sb.AppendLine($"- **盈利机器**: ROE(净资产收益率) {ctx.ROE:F2}% | 归母净利润 {ctx.NetProfit:F2} 亿 | 总营收 {ctx.OperatingRevenue:F2} 亿");
-                sb.AppendLine($"- **血脉现金**: 每股经营现金流 {ctx.OperatingCashFlowPerShare:F2} 元");
-                
-                sb.AppendLine("#### 📉 均线系统与趋势探测");
-                sb.AppendLine($"- **各大均线**: MA5={ctx.MA5:F2}, MA10={ctx.MA10:F2}, MA20={ctx.MA20:F2}");
-                
-                string biasWarning = ctx.BiasMA5 > 5 ? "🚨 偏离极大，严禁追高！" : "✅ 乖离安全";
-                sb.AppendLine($"- **核心位置预警 (乖离率)**: 本股较 MA5 乖离率为 {ctx.BiasMA5:F2}% ({biasWarning})，较 MA10 乖离率为 {ctx.BiasMA10:F2}%");
-                sb.AppendLine($"- **形态判研**: 当前呈现【{ctx.MAAlignment}】");
-                
-                sb.AppendLine("#### 🌊 筹码博弈与主力资金 (由本地高密度仿真算力生成)");
-                string flowSign = ctx.MainForceNetInflow >= 0 ? "+" : "";
-                sb.AppendLine($"- **主力动向**: 今日主力大单净流入 {flowSign}{ctx.MainForceNetInflow / 10000.0:F2} 万元");
-                sb.AppendLine($"- **筹码结构透视**: (基于近200日高斯K线仿真)");
-                sb.AppendLine($"  - 当前平均持仓成本约: {ctx.ChipAvgCost:F2} 元");
-                sb.AppendLine($"  - 获利盘比例: {ctx.ProfitRatio:F2}% (重点：若超过85%请拉响顶部派发高危警报！若低于15%说明大多被套牢)");
-                sb.AppendLine($"  - 90%筹码集中度: {ctx.ChipConcentration90:F2}% (集中度<15%表示单峰极度密集，博弈性强；越大表示越发散)");
 
-                sb.AppendLine("#### 📰 最新舆情与催化剂情报");
-                if (ctx.LatestNews.Count > 0)
+                // 数据质量验证
+                var qualityResult = DataQualityValidator.ValidateStockData(ctx);
+                dataQualityResults[code] = qualityResult;
+
+                // 只对质量合格的数据进行评分
+                if (DataQualityValidator.IsSuitableForAIAnalysis(qualityResult))
                 {
-                    sb.AppendLine("请重点评判以下近3日的新闻是否存在重大利空或利好：");
-                    foreach (var news in ctx.LatestNews)
-                    {
-                        sb.AppendLine($"- {news}");
-                    }
+                    // 保存数据供后续使用
+                    stockDataContexts[code] = ctx;
+
+                    // 使用增强的量化评分系统
+                    var enhancedScore = ImprovedWinRateScoring.CalculateEnhancedScore(ctx, marketCondition);
+                    enhancedScores.Add(enhancedScore);
                 }
-                else
-                {
-                    sb.AppendLine("- 未搜索到近期相关特别突发新闻，请主要依靠盘口量价、纯技术面与资金博弈进行推演。");
-                }
-                sb.AppendLine("---");
             }
 
-            string prompt = sb.ToString();
+            // === 第三步：获取历史表现数据（用于优化建议） ===
+            var backtestResult = AdviceTracker.CalculateBackTestResults(30); // 最近30天
+
+            // === 第四步：构建增强的AI提示词 ===
+            string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
+                enhancedScores,
+                marketCondition,
+                indexDataList,
+                stockDataContexts,
+                dataQualityResults,
+                backtestResult.TotalTrades > 0 ? backtestResult : null);
+
+            // === 第五步：记录建议到追踪系统 ===
+            foreach (var enhancedScore in enhancedScores.Where(s => s.ActionAdvice.Contains("买入")))
+            {
+                if (stockDataContexts.ContainsKey(enhancedScore.StockCode))
+                {
+                    var ctx = stockDataContexts[enhancedScore.StockCode];
+                    var record = new AdviceTracker.AdviceRecord
+                    {
+                        AdviceDate = DateTime.Now,
+                        StockCode = enhancedScore.StockCode,
+                        StockName = enhancedScore.StockName,
+                        Action = "buy",
+                        RecommendedPrice = enhancedScore.SuggestedBuyPrice > 0 ? enhancedScore.SuggestedBuyPrice : (decimal)ctx.CurrentPrice,
+                        StopLossPrice = enhancedScore.StopLossPrice,
+                        TargetPrice = enhancedScore.TargetPrice,
+                        ExpectedWinRate = enhancedScore.WinProbability,
+                        OverallScore = enhancedScore.OverallScore,
+                        TechnicalScore = enhancedScore.TechnicalScore,
+                        FundamentalScore = enhancedScore.FundamentalScore,
+                        FundFlowScore = enhancedScore.FundFlowScore,
+                        MarketCondition = marketCondition
+                    };
+                    AdviceTracker.RecordAdvice(record);
+                }
+            }
 
             // 请求 Gemini
             string aiResponse = await CallGeminiApiAsync(prompt);
@@ -1989,13 +1960,22 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => 
             {
                 if (resultWindow != null) resultWindow.Close();
+                // 构建完整错误信息（含 InnerException 链，便于排查根因）
+                var errMsg = new System.Text.StringBuilder();
+                errMsg.AppendLine(ex.Message);
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    errMsg.AppendLine($"\n原因: {inner.Message}");
+                    inner = inner.InnerException;
+                }
                 if (!hideUi)
                 {
-                    new AnalysisResultWindow("AI 分析报错", $"发生异常：\n{ex.Message}").Show(this);
+                    new AnalysisResultWindow("AI 分析报错", $"发生异常：\n{errMsg}").Show(this);
                 }
                 else
                 {
-                    new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{ex.Message}").Show(this);
+                    new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{errMsg}").Show(this);
                 }
             });
         }
@@ -2019,36 +1999,78 @@ public partial class MainWindow : Window
         };
         string payloadJson = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
 
-        using var client = new HttpClient();
-        client.Timeout = TimeSpan.FromSeconds(60);
-
         foreach (string model in models)
         {
-            string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
-            var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
-            var response = await client.PostAsync(endpoint, content);
-            string rawJson = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                Program.LogError($"Gemini API Error [{model}]", new Exception(rawJson));
+                string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+
+                // 使用网络助手的重试机制
+                string rawJson = await NetworkHelper.HttpPostWithRetryAsync(
+                    endpoint,
+                    payloadJson,
+                    maxRetries: 2,
+                    timeoutSeconds: 60);
+
+                try
+                {
+                    var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
+                    var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
+
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        return text;
+                    }
+                    else
+                    {
+                        Program.LogError($"AI返回结果为空 [{model}]", new Exception(rawJson));
+                        // 继续尝试下一个模型
+                        continue;
+                    }
+                }
+                catch (Newtonsoft.Json.JsonReaderException jsonEx)
+                {
+                    Program.LogError($"AI响应JSON解析失败 [{model}]", jsonEx);
+                    continue;
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                Program.LogError($"Gemini API网络错误 [{model}]", httpEx);
                 // 继续尝试下一个模型
                 continue;
             }
-
-            try
+            catch (Exception ex)
             {
-                var root = JObject.Parse(rawJson);
-                var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
-                return text ?? "AI 返回结果为空";
-            }
-            catch (Exception e)
-            {
-                return $"解析 AI 响应失败: {e.Message}\n原始内容: {rawJson}";
+                Program.LogError($"Gemini API通用错误 [{model}]", ex);
+                continue;
             }
         }
 
-        return "AI 请求失败：所有可用模型均无法响应，请检查 API Key 或网络连接。";
+        // 所有模型都失败后的详细错误信息
+        return GenerateDetailedErrorMessage();
+    }
+
+    private string GenerateDetailedErrorMessage()
+    {
+        var errorBuilder = new System.Text.StringBuilder();
+        errorBuilder.AppendLine("AI 请求失败：所有可用模型均无法响应。");
+        errorBuilder.AppendLine();
+        errorBuilder.AppendLine("可能的原因：");
+        errorBuilder.AppendLine("1. API Key 不正确或已过期");
+        errorBuilder.AppendLine("2. 网络连接问题或防火墙阻止");
+        errorBuilder.AppendLine("3. SSL/TLS 证书验证失败");
+        errorBuilder.AppendLine("4. Gemini API 服务暂时不可用");
+        errorBuilder.AppendLine("5. 请求过于频繁，触发了速率限制");
+        errorBuilder.AppendLine();
+        errorBuilder.AppendLine("建议的解决方案：");
+        errorBuilder.AppendLine("• 检查 API Key 是否正确配置");
+        errorBuilder.AppendLine("• 测试网络连接是否正常");
+        errorBuilder.AppendLine("• 稍后重试或更换网络环境");
+        errorBuilder.AppendLine("• 检查 Gemini API 服务状态");
+        errorBuilder.AppendLine("• 如果使用了代理，请检查代理设置");
+
+        return errorBuilder.ToString();
     }
 
     private async Task SendEmailAsync(string subject, string body)
