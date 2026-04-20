@@ -1899,12 +1899,11 @@ public partial class MainWindow : Window
                 var ctx = kvp.Value.ctx;
                 string sector = kvp.Value.sector;
 
-                // 数据质量检查
+                // 数据质量检查 (只做基础提醒，不直接 skip，确保模型能分析即便数据不全)
                 bool dataQualityIssue = ctx.CurrentPrice <= 0 || (ctx.MA5 <= 0 && ctx.MA10 <= 0);
                 if (dataQualityIssue)
                 {
-                    prompt += $"### ⚠️ 数据异常: {ctx.Name} ({code}) - 部分数据获取失败，请谨慎分析\n\n";
-                    continue;
+                    prompt += $"### ⚠️ 数据提醒: {ctx.Name} ({code}) - 注意：部分历史成交数据抓取异常，请结合其他指标综合研判\n\n";
                 }
 
                 prompt += $"### 📊 股票详细分析: {ctx.Name} ({code}) - {sector}\n";
@@ -1927,9 +1926,11 @@ public partial class MainWindow : Window
                 prompt += "#### 📰 舆情面\n";
                 if (ctx.LatestNews.Count > 0)
                 {
-                    foreach (var news in ctx.LatestNews.Take(3))
+                    // 仅提取核心标题，节省 Token 空间
+                    foreach (var news in ctx.LatestNews.Take(2))
                     {
-                        prompt += $"- {news}\n";
+                        var cleanNews = news.Split(':').First().Replace("- ", "").Trim();
+                        prompt += $"- {cleanNews}\n";
                     }
                 }
                 else
@@ -2023,12 +2024,13 @@ public partial class MainWindow : Window
                     string endpoint = $"{baseUrl}/models/{model}:generateContent?key={apiKey}";
                     var payload = new
                     {
-                        contents = new[] { new { parts = new[] { new { text = prompt } } } }
+                        contents = new[] { new { parts = new[] { new { text = prompt } } } },
+                        generationConfig = new { maxOutputTokens = 4000, temperature = 0.7 }
                     };
                     rawJson = await NetworkHelper.HttpPostWithRetryAsync(
                         endpoint,
                         Newtonsoft.Json.JsonConvert.SerializeObject(payload),
-                        maxRetries: 2, timeoutSeconds: 60);
+                        maxRetries: 2, timeoutSeconds: 120);
 
                     try
                     {
@@ -2056,6 +2058,7 @@ public partial class MainWindow : Window
                         {
                             new { role = "user", content = prompt }
                         },
+                        max_tokens = 4000,
                         temperature = 0.7,
                         stream = false
                     };

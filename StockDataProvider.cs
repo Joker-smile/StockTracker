@@ -135,16 +135,16 @@ namespace StockTracker
 
         private static string GetPrefix(string code)
         {
-            if (code.StartsWith("6")) return "sh";
-            if (code.StartsWith("0") || code.StartsWith("3")) return "sz";
+            if (code.StartsWith("6") || code.StartsWith("9") || code.StartsWith("5") || code.StartsWith("7")) return "sh";
+            if (code.StartsWith("0") || code.StartsWith("3") || code.StartsWith("1") || code.StartsWith("2")) return "sz";
             if (code.StartsWith("8") || code.StartsWith("4")) return "bj";
-            return "sz"; // fallback
+            return "sh"; // fallback
         }
 
         private static string GetEastMoneyMarketPrefix(string code)
         {
-            if (code.StartsWith("6")) return "1"; // SH
-            if (code.StartsWith("0") || code.StartsWith("3")) return "0"; // SZ
+            if (code.StartsWith("6") || code.StartsWith("9") || code.StartsWith("5") || code.StartsWith("7")) return "1"; // SH
+            if (code.StartsWith("0") || code.StartsWith("3") || code.StartsWith("1") || code.StartsWith("2")) return "0"; // SZ
             if (code.StartsWith("8") || code.StartsWith("4")) return "0"; // BJ
             return "0"; // fallback
         }

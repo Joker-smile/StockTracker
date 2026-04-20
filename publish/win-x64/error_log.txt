@@ -1,7 +1,0 @@
-[2026-04-20 09:56:21] [AI 网络错误 [deepseek-chat]]
-System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP PaymentRequired: {"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}
- ---> System.Net.Http.HttpRequestException: HTTP PaymentRequired: {"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}
-   --- End of inner exception stack trace ---
-   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
-   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
-----------------------------------------

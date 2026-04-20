@@ -387,7 +387,7 @@ namespace StockTracker
             }
 
             // === 分析结果 ===
-            var highScoreStocks = scores.Where(s => s.OverallScore >= 50).OrderByDescending(s => s.OverallScore).ToList();
+            var highScoreStocks = scores.OrderByDescending(s => s.OverallScore).ToList();
 
             sb.AppendLine("\n【量化评分结果】");
             sb.AppendLine("| 股票代码 | 股票名称 | 综合评分 | 技术面 | 基本面 | 资金面 | 情绪面 | 风险分 | 预期胜率 | 推荐级别 |");
@@ -398,9 +398,8 @@ namespace StockTracker
                 sb.AppendLine($"| {score.StockCode} | {score.StockName} | {score.OverallScore:F1} | {score.TechnicalScore:F1} | {score.FundamentalScore:F1} | {score.FundFlowScore:F1} | {score.SentimentScore:F1} | {score.RiskScore:F1} | {score.WinProbability:F1}% | {score.RecommendationLevel} |");
             }
 
-            // === 操作建议模板 ===
             sb.AppendLine("\n【输出格式要求】");
-            sb.AppendLine("对于每个评分≥60分的股票，按以下格式输出：");
+            sb.AppendLine("对于上表中的每一只股票，请务必全部按以下格式逐一输出详细分析，不得遗漏：");
             sb.AppendLine("");
             sb.AppendLine("## 📊 [股票名称] ([代码]) - [推荐级别]");
             sb.AppendLine("**预期胜率**: [胜率%] | **综合评分**: [评分]/100");
