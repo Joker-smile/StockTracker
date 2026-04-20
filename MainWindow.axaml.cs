@@ -1822,11 +1822,13 @@ public partial class MainWindow : Window
     {
         if (_isAiAnalysisRunning) return;
 
-        if (string.IsNullOrWhiteSpace(_appSettings.GeminiApiKey))
+        if (string.IsNullOrWhiteSpace(_appSettings.ApiKey))
         {
             Dispatcher.UIThread.Post(() => 
             {
-                var tip = new AnalysisResultWindow("配置错误", "请先右键选择 [⚙️ 配置设置] 中配置 Gemini API Key！");
+                var tip = new AnalysisResultWindow("配置错误",
+                    "请先右键选择 [⚙️ 配置设置] 配置 AI API Key。\n" +
+                    "支持 Gemini / DeepSeek / 千问 / GLM 等。");
                 tip.Show(this);
             });
             return;
@@ -1839,7 +1841,7 @@ public partial class MainWindow : Window
         {
             Dispatcher.UIThread.Post(() => 
             {
-                resultWindow = new AnalysisResultWindow("AI 个股分析中", "正在抓取自选股行情数据并调用 Gemini AI，请稍候...");
+                resultWindow = new AnalysisResultWindow("AI 个股分析中", "正在抓取自选股行情数据并调用 AI 分析接口，请稍候...");
                 resultWindow.Show(this);
             });
         }
@@ -1938,8 +1940,8 @@ public partial class MainWindow : Window
                 prompt += "---\n";
             }
 
-            // 请求 Gemini
-            string aiResponse = await CallGeminiApiAsync(prompt);
+            // 请求 AI 接口（Gemini / OpenAI 兼容）
+            string aiResponse = await CallAiApiAsync(prompt);
             string finalReport = $"分析执行时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
 
             // 处理结果弹窗展示
@@ -1990,92 +1992,197 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<string> CallGeminiApiAsync(string prompt)
+    /// <summary>
+    /// 统一 AI 调用入口。
+    /// - Base URL 为空或含 generativelanguage.googleapis.com → Gemini 原生协议
+    /// - 其余 → OpenAI Chat Completions 兼容协议（DeepSeek / 千问 / GLM / 中转站等）
+    /// </summary>
+    private async Task<string> CallAiApiAsync(string prompt)
     {
-        string apiKey = _appSettings.GeminiApiKey;
-        string[] models = { "gemini-3-flash-preview", "gemini-2.5-flash" };
+        string apiKey  = _appSettings.ApiKey;
+        string baseUrl = _appSettings.ResolvedBaseUrl;
+        string[] models = _appSettings.ResolvedModels;
 
-        var payload = new
+        if (models.Length == 0)
         {
-            contents = new[]
-            {
-                new { parts = new[] { new { text = prompt } } }
-            }
-        };
-        string payloadJson = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
+            return "AI 配置错误：使用 OpenAI 兼容接口时必须在【配置设置】中填写模型名称。\n" +
+                   "例如：deepseek-chat / qwen-plus / glm-4-flash";
+        }
+
+        var errorRecords = new List<string>();
 
         foreach (string model in models)
         {
             try
             {
-                string endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+                string rawJson;
 
-                // 使用网络助手的重试机制
-                string rawJson = await NetworkHelper.HttpPostWithRetryAsync(
-                    endpoint,
-                    payloadJson,
-                    maxRetries: 2,
-                    timeoutSeconds: 60);
-
-                try
+                if (_appSettings.IsGeminiProtocol)
                 {
-                    var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
-                    var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
+                    // ── Gemini 原生: POST /v1beta/models/{model}:generateContent?key=... ──
+                    string endpoint = $"{baseUrl}/models/{model}:generateContent?key={apiKey}";
+                    var payload = new
+                    {
+                        contents = new[] { new { parts = new[] { new { text = prompt } } } }
+                    };
+                    rawJson = await NetworkHelper.HttpPostWithRetryAsync(
+                        endpoint,
+                        Newtonsoft.Json.JsonConvert.SerializeObject(payload),
+                        maxRetries: 2, timeoutSeconds: 60);
 
-                    if (!string.IsNullOrEmpty(text))
+                    try
                     {
-                        return text;
+                        var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
+                        var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
+                        if (!string.IsNullOrEmpty(text)) return text;
+                        Program.LogError($"Gemini 返回结果为空 [{model}]", new Exception(rawJson));
+                        continue;
                     }
-                    else
+                    catch (Newtonsoft.Json.JsonReaderException jsonEx)
                     {
-                        Program.LogError($"AI返回结果为空 [{model}]", new Exception(rawJson));
-                        // 继续尝试下一个模型
+                        Program.LogError($"Gemini 响应解析失败 [{model}]", jsonEx);
                         continue;
                     }
                 }
-                catch (Newtonsoft.Json.JsonReaderException jsonEx)
+                else
                 {
-                    Program.LogError($"AI响应JSON解析失败 [{model}]", jsonEx);
-                    continue;
+                    // ── OpenAI Chat Completions 兼容: POST /chat/completions ──
+                    // 兼容 DeepSeek / 千问 / GLM / 任意 OpenAI 兼容中转站
+                    string endpoint = $"{baseUrl}/chat/completions";
+                    var payload = new
+                    {
+                        model,
+                        messages = new[]
+                        {
+                            new { role = "user", content = prompt }
+                        },
+                        temperature = 0.7,
+                        stream = false
+                    };
+                    string payloadJson = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
+
+                    // OpenAI 兼容协议用 Bearer Token 鉴权，需要在 HttpClient 上设置 Authorization 头
+                    rawJson = await NetworkHelper.HttpPostWithRetryAsync(
+                        endpoint,
+                        payloadJson,
+                        maxRetries: 2, timeoutSeconds: 120,
+                        bearerToken: apiKey);
+
+                    try
+                    {
+                        var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
+                        var text = root["choices"]?[0]?["message"]?["content"]?.ToString();
+                        if (!string.IsNullOrEmpty(text)) return text;
+                        // 检查错误响应
+                        var errMsg = root["error"]?["message"]?.ToString();
+                        if (!string.IsNullOrEmpty(errMsg))
+                            Program.LogError($"AI 接口错误 [{model}]: {errMsg}", new Exception(rawJson));
+                        else
+                            Program.LogError($"AI 返回结果为空 [{model}]", new Exception(rawJson));
+                        continue;
+                    }
+                    catch (Newtonsoft.Json.JsonReaderException jsonEx)
+                    {
+                        Program.LogError($"AI 响应解析失败 [{model}]", jsonEx);
+                        continue;
+                    }
                 }
             }
             catch (HttpRequestException httpEx)
             {
-                Program.LogError($"Gemini API网络错误 [{model}]", httpEx);
-                // 继续尝试下一个模型
+                Program.LogError($"AI 网络错误 [{model}]", httpEx);
+                string errTxt = httpEx.InnerException?.Message ?? httpEx.Message;
+                errorRecords.Add($"[{model}] 接口异常：{errTxt}");
                 continue;
             }
             catch (Exception ex)
             {
-                Program.LogError($"Gemini API通用错误 [{model}]", ex);
+                Program.LogError($"AI 通用错误 [{model}]", ex);
+                errorRecords.Add($"[{model}] 系统异常：{ex.Message}");
                 continue;
             }
         }
 
-        // 所有模型都失败后的详细错误信息
-        return GenerateDetailedErrorMessage();
+        return GenerateDetailedErrorMessage(errorRecords);
     }
 
-    private string GenerateDetailedErrorMessage()
+    private string GenerateDetailedErrorMessage(List<string> errorRecords)
     {
-        var errorBuilder = new System.Text.StringBuilder();
-        errorBuilder.AppendLine("AI 请求失败：所有可用模型均无法响应。");
-        errorBuilder.AppendLine();
-        errorBuilder.AppendLine("可能的原因：");
-        errorBuilder.AppendLine("1. API Key 不正确或已过期");
-        errorBuilder.AppendLine("2. 网络连接问题或防火墙阻止");
-        errorBuilder.AppendLine("3. SSL/TLS 证书验证失败");
-        errorBuilder.AppendLine("4. Gemini API 服务暂时不可用");
-        errorBuilder.AppendLine("5. 请求过于频繁，触发了速率限制");
-        errorBuilder.AppendLine();
-        errorBuilder.AppendLine("建议的解决方案：");
-        errorBuilder.AppendLine("• 检查 API Key 是否正确配置");
-        errorBuilder.AppendLine("• 测试网络连接是否正常");
-        errorBuilder.AppendLine("• 稍后重试或更换网络环境");
-        errorBuilder.AppendLine("• 检查 Gemini API 服务状态");
-        errorBuilder.AppendLine("• 如果使用了代理，请检查代理设置");
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("AI 请求失败：所有可用模型均无法响应。");
+        sb.AppendLine();
+        
+        if (errorRecords != null && errorRecords.Count > 0)
+        {
+            sb.AppendLine("【详细错误拦截记录】");
+            foreach(var err in errorRecords)
+            {
+                string displayErr = err;
+                string lowerErr = err.ToLowerInvariant();
+                string prefix = err.Contains("]") ? err.Split(']')[0] + "]" : "[]";
 
-        return errorBuilder.ToString();
+                // --- 1. 余额不足 / 欠费 / 免费额度耗尽 ---
+                if (lowerErr.Contains("insufficient balance") || 
+                    lowerErr.Contains("paymentrequired") || 
+                    lowerErr.Contains("arrears") || 
+                    lowerErr.Contains("quota exceeded") || 
+                    lowerErr.Contains("\"code\": \"1004\"") || lowerErr.Contains("\"code\":1004")) // GLM 欠费
+                {
+                    displayErr = $"❌ {prefix} 账号余额或免费额度不足，请充值或更换 API Key。({err.Replace(prefix, "").Trim()})";
+                }
+                // --- 2. 授权失败 / API Key 无效 ---
+                else if (lowerErr.Contains("invalid_api_key") || 
+                         lowerErr.Contains("unauthorized") || 
+                         lowerErr.Contains("invalidapikey") || 
+                         lowerErr.Contains("api_key_invalid") ||
+                         lowerErr.Contains("\"code\": \"1301\"") || lowerErr.Contains("\"code\":1301") || // GLM key报错
+                         lowerErr.Contains("valid api key") ||
+                         lowerErr.Contains("authentication failed"))
+                {
+                    displayErr = $"❌ {prefix} API Key 错误或未授权，请检查设置。({err.Replace(prefix, "").Trim()})";
+                }
+                // --- 3. 频率限制 / 请求过快 ---
+                else if (lowerErr.Contains("rate_limit_exceeded") ||
+                         lowerErr.Contains("throttling") ||
+                         lowerErr.Contains("429") ||
+                         lowerErr.Contains("too many requests") ||
+                         lowerErr.Contains("\"code\": \"1302\"") || lowerErr.Contains("\"code\":1302"))
+                {
+                    displayErr = $"⚠️ {prefix} 接口请求频率过高被限流，建议稍晚再试。({err.Replace(prefix, "").Trim()})";
+                }
+                // --- 4. 网络/代理/主机超时错误 ---
+                else if (lowerErr.Contains("taskcanceled") || lowerErr.Contains("timeout") || lowerErr.Contains("connection"))
+                {
+                    displayErr = $"📶 {prefix} 网络连接超时或代理断开，无法到达平台服务器。({err.Replace(prefix, "").Trim()})";
+                }
+                else 
+                {
+                    // 未匹配的原始错误信息
+                    displayErr = $"❓ {err}";
+                }
+                
+                sb.AppendLine(" " + displayErr);
+            }
+            sb.AppendLine("\n【排查建议】");
+        }
+        else
+        {
+            sb.AppendLine("【可能原因】");
+            sb.AppendLine("1. API Key 不正确或已过期");
+            sb.AppendLine("2. 网络连接问题或防火墙/代理拦截");
+            sb.AppendLine("3. SSL/TLS 证书验证失败");
+            sb.AppendLine("4. AI 服务暂时不可用或触发速率限制");
+            sb.AppendLine("5. Base URL 填写有误（OpenAI 兼容模式）");
+            sb.AppendLine("\n【排查建议】");
+        }
+
+        sb.AppendLine("• 右键 → 配置设置，确认 API Key / Base URL / 模型名是否正确");
+        sb.AppendLine("• Gemini：留空 Base URL，使用 generativelanguage.googleapis.com");
+        sb.AppendLine("• DeepSeek：https://api.deepseek.com/v1  模型 deepseek-chat");
+        sb.AppendLine("• 千问：https://dashscope.aliyuncs.com/compatible-mode/v1  模型 qwen-plus");
+        sb.AppendLine("• GLM：https://open.bigmodel.cn/api/paas/v4  模型 glm-4-flash");
+        sb.AppendLine("• 查看同目录 error_log.txt 获取详细错误信息");
+        return sb.ToString();
     }
 
     private async Task SendEmailAsync(string subject, string body)

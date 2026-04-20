@@ -59,7 +59,8 @@ namespace StockTracker
             string url,
             string content,
             int maxRetries = 3,
-            int timeoutSeconds = 30)
+            int timeoutSeconds = 30,
+            string? bearerToken = null)
         {
             Exception? lastException = null;
 
@@ -68,6 +69,12 @@ namespace StockTracker
                 try
                 {
                     using var client = CreateSSLHttpClient(timeoutSeconds);
+
+                    // OpenAI 兼容协议用 Bearer Token 鉴权
+                    if (!string.IsNullOrWhiteSpace(bearerToken))
+                        client.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+
                     var contentObj = new StringContent(content, System.Text.Encoding.UTF8, "application/json");
 
                     var response = await client.PostAsync(url, contentObj);
@@ -81,6 +88,13 @@ namespace StockTracker
                     {
                         lastException = new HttpRequestException(
                             $"HTTP {response.StatusCode}: {responseString}");
+                            
+                        // 客户端认证/余额/参数错误（非429限流）：重试无意义，直接跳出
+                        if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500 && 
+                            response.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
+                        {
+                            break;
+                        }
                     }
                 }
                 catch (HttpRequestException httpEx)
@@ -202,7 +216,40 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 测试API连接
+        /// 测试 AI 接口连接（Gemini 原生 或 OpenAI 兼容）
+        /// </summary>
+        /// <param name="settings">当前配置</param>
+        public static async Task<bool> TestAiConnectionAsync(AppSettings settings)
+        {
+            try
+            {
+                if (settings.IsGeminiProtocol)
+                {
+                    // Gemini: 列出模型接口
+                    string url = $"{settings.ResolvedBaseUrl}/models?key={settings.ApiKey}";
+                    using var client = CreateSSLHttpClient(15);
+                    var response = await client.GetAsync(url);
+                    return response.IsSuccessStatusCode;
+                }
+                else
+                {
+                    // OpenAI 兼容: 列出模型接口
+                    string url = $"{settings.ResolvedBaseUrl}/models";
+                    using var client = CreateSSLHttpClient(15);
+                    client.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.ApiKey);
+                    var response = await client.GetAsync(url);
+                    return response.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 向后兼容：测试 Gemini API 连接（内部调用统一方法）
         /// </summary>
         public static async Task<bool> TestGeminiConnectionAsync(string apiKey)
         {
