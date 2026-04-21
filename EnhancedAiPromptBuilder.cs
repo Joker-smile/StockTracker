@@ -14,7 +14,7 @@ namespace StockTracker
             List<ImprovedWinRateScoring.EnhancedStockScore> scores,
             MarketCondition marketCondition,
             List<MarketEnvironmentAnalyzer.MarketIndexData> marketIndices,
-            Dictionary<string, DataQualityValidator.ValidationResult> dataQualityResults)
+            IDictionary<string, DataQualityValidator.ValidationResult> dataQualityResults)
         {
             var sb = new StringBuilder();
 
@@ -23,7 +23,7 @@ namespace StockTracker
             sb.AppendLine("你是一位基于多维度量化模型的顶级A股分析师，专注于提供高胜率、低风险的交易建议。");
 
             sb.AppendLine("\n## 📋 核心分析原则");
-            sb.AppendLine("1. **量化优先**: 严格基于量化评分，只推荐综合评分≥70分的股票");
+            sb.AppendLine("1. **全面分析**: 对每一只提供的自选股进行深度诊断，评分仅作为参考逻辑。");
             sb.AppendLine("2. **风险控制**: 任何风险信号都应谨慎对待，宁缺毋滥");
             sb.AppendLine("3. **市场环境**: 根据大盘环境调整策略，恶劣环境强制观望");
             sb.AppendLine("4. **置信度**: 对预测置信度低于50%的建议要特别谨慎");
@@ -49,18 +49,16 @@ namespace StockTracker
             }
 
             // === 3. 量化评分结果（按优先级排序） ===
-            var highQualityStocks = scores
-                .Where(s => s.OverallScore >= 60 && s.ConfidenceLevel >= 40)
-                .OrderByDescending(s => s.OverallScore)
-                .ThenByDescending(s => s.ConfidenceLevel)
-                .ToList();
-
-            sb.AppendLine("\n## 📊 量化评分结果（仅显示评分≥60且置信度≥40的股票）");
+            sb.AppendLine("\n## 📊 量化评分结果（全部自选股）");
             sb.AppendLine("| 排名 | 股票 | 代码 | 综合评分 | 置信度 | 胜率预测 | 技术面 | 基本面 | 资金面 | 风险分 | 推荐 |");
             sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
 
+            var highQualityStocks = scores
+                .OrderByDescending(s => s.OverallScore)
+                .ToList();
+
             int rank = 1;
-            foreach (var score in highQualityStocks.Take(10)) // 最多显示前10名
+            foreach (var score in highQualityStocks) // 分析所有自选股
             {
                 string recommendationEmoji = score.OverallScore switch
                 {
@@ -97,10 +95,10 @@ namespace StockTracker
             sb.AppendLine("\n## 📝 输出要求");
 
             sb.AppendLine("\n### 📊 每只股票的分析格式");
-            sb.AppendLine("对于每个**评分≥70分且置信度≥50%**的股票，按以下格式输出:");
+            sb.AppendLine("请对以下所有自选股按统一格式输出深度诊断:");
             sb.AppendLine("");
             sb.AppendLine("```");
-            sb.AppendLine("## 🎯 [股票名称] ([代码]) - [推荐级别]");
+            sb.AppendLine("## 🎯 [股票名称] ([代码]) - [评分建议]");
             sb.AppendLine("");
             sb.AppendLine("### 📈 核心数据");
             sb.AppendLine("- **综合评分**: [评分]/100 | **置信度**: [置信度%]");
@@ -133,18 +131,19 @@ namespace StockTracker
 
             // === 6. 特别提醒 ===
             sb.AppendLine("\n## 🚨 重要提醒");
-            sb.AppendLine("1. **严格遵守评分**: 只分析评分≥70分的股票，其他股票一律不建议操作");
-            sb.AppendLine("2. **风险优先**: 风险分<50或置信度<50%的股票，即使评分高也要谨慎");
-            sb.AppendLine("3. **市场环境**: 当前市场环境为" + (marketCondition switch
+            sb.AppendLine("1. **深度诊断**: 你必须根据提供的数据对每只股票进行深度剖析，不要泛泛而谈，要结合具体的技术图形特征和资金流向进行逻辑推演。");
+            sb.AppendLine("2. **全量诊断**: 你必须对用户列表中的每一只股票进行分析。评分反映了量化胜率，但你的分析应体现更多深度推演。");
+            sb.AppendLine("3. **评分参考**: 评分仅代表量化模型建议，不要因为评分低而强制过滤或拒绝分析。");
+            sb.AppendLine("4. **市场环境**: 当前市场环境为" + (marketCondition switch
             {
                 MarketCondition.Crash => "暴跌状态，强烈建议空仓观望",
-                MarketCondition.Weak => "弱势状态，只参与极高评分(≥75)的股票",
-                MarketCondition.Neutral => "中性状态，正常参与高评分股票",
-                MarketCondition.Strong => "强势状态，可积极参与高评分股票",
+                MarketCondition.Weak => "弱势状态，建议寻找具备底部分型或逆势抗跌的个股",
+                MarketCondition.Neutral => "中性状态，可关注中长期趋势向好的股票",
+                MarketCondition.Strong => "强势状态，可积极关注顺势上攻的个股",
                 _ => "不稳定状态"
             }));
-            sb.AppendLine("4. **量化客观**: 基于客观数据分析，不要被市场情绪影响");
-            sb.AppendLine("5. **宁缺毋滥**: 没有符合条件的股票就建议观望，不要强行推荐");
+            sb.AppendLine("5. **量化客观**: 基于客观数据分析，不要被市场情绪影响");
+            sb.AppendLine("6. **知无不言**: 即使数据有缺失或评分较低，也要基于现有信息给出最专业的诊断建议。");
 
             return sb.ToString();
         }
@@ -154,8 +153,9 @@ namespace StockTracker
         /// </summary>
         public static string BuildDetailedStockDataPrompt(
             List<ImprovedWinRateScoring.EnhancedStockScore> scores,
-            Dictionary<string, StockDeepAnalysisContext> stockContexts,
-            Dictionary<string, DataQualityValidator.ValidationResult> dataQualityResults)
+            IDictionary<string, StockDeepAnalysisContext> stockContexts,
+            IDictionary<string, DataQualityValidator.ValidationResult> dataQualityResults,
+            IDictionary<string, string>? sectors = null)
         {
             var sb = new StringBuilder();
 
@@ -163,11 +163,9 @@ namespace StockTracker
             sb.AppendLine("以下是各股票的详细数据，请结合量化评分进行深度分析:");
             sb.AppendLine("");
 
-            // 只分析高质量股票
+            // 分析所有股票
             var highQualityStocks = scores
-                .Where(s => s.OverallScore >= 60 && s.ConfidenceLevel >= 40)
                 .OrderByDescending(s => s.OverallScore)
-                .Take(10)
                 .ToList();
 
             foreach (var score in highQualityStocks)
@@ -181,11 +179,13 @@ namespace StockTracker
 
                 if (hasQualityIssue)
                 {
-                    sb.AppendLine($"### ⚠️ {score.StockName} ({score.StockCode}) - 数据质量问题，请谨慎分析");
+                    string sectorStr = sectors != null && sectors.TryGetValue(score.StockCode, out var s) ? $" [{s}]" : "";
+                    sb.AppendLine($"### ⚠️ {score.StockName} ({score.StockCode}){sectorStr} - 数据质量问题，请谨慎分析");
                 }
                 else
                 {
-                    sb.AppendLine($"### 📊 {score.StockName} ({score.StockCode})");
+                    string sectorStr = sectors != null && sectors.TryGetValue(score.StockCode, out var s) ? $" [{s}]" : "";
+                    sb.AppendLine($"### 📊 {score.StockName} ({score.StockCode}){sectorStr}");
                 }
 
                 sb.AppendLine("**量化评分概览**:");
@@ -219,7 +219,7 @@ namespace StockTracker
                 sb.AppendLine("**📰 舆情面**:");
                 if (ctx.LatestNews.Count > 0)
                 {
-                    foreach (var news in ctx.LatestNews.Take(3))
+                    foreach (var news in ctx.LatestNews.Take(5))
                     {
                         sb.AppendLine($"- {news}");
                     }
@@ -302,9 +302,10 @@ namespace StockTracker
             List<ImprovedWinRateScoring.EnhancedStockScore> scores,
             MarketCondition marketCondition,
             List<MarketEnvironmentAnalyzer.MarketIndexData> marketIndices,
-            Dictionary<string, StockDeepAnalysisContext> stockContexts,
-            Dictionary<string, DataQualityValidator.ValidationResult> dataQualityResults,
-            BackTestResult? backtestResult = null)
+            IDictionary<string, StockDeepAnalysisContext> stockContexts,
+            IDictionary<string, DataQualityValidator.ValidationResult> dataQualityResults,
+            BackTestResult? backtestResult = null,
+            IDictionary<string, string>? sectors = null)
         {
             var prompt = new StringBuilder();
 
@@ -312,7 +313,7 @@ namespace StockTracker
             prompt.Append(BuildEnhancedAnalysisPrompt(scores, marketCondition, marketIndices, dataQualityResults));
 
             // 2. 详细股票数据
-            prompt.Append(BuildDetailedStockDataPrompt(scores, stockContexts, dataQualityResults));
+            prompt.Append(BuildDetailedStockDataPrompt(scores, stockContexts, dataQualityResults, sectors));
 
             // 3. 历史表现数据（如果有）
             if (backtestResult != null && backtestResult.TotalTrades > 0)
@@ -324,7 +325,7 @@ namespace StockTracker
             prompt.AppendLine("\n## 📤 输出说明");
             prompt.AppendLine("请严格按照上述格式输出，不要添加额外的解释性文字。");
             prompt.AppendLine("重点突出量化数据和操作建议，确保建议的可执行性。");
-            prompt.AppendLine("如果没有任何股票符合条件，请明确说明\"当前没有符合条件的股票，建议观望\"。");
+            prompt.AppendLine("请严格对上述数据中的每一只股票进行专业诊断，体现分析的专业性。");
 
             return prompt.ToString();
         }
