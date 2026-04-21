@@ -386,32 +386,31 @@ namespace StockTracker
 
             sb.AppendLine("\n---");
 
-            sb.AppendLine("\n## 📝 输出要求 (极致精炼复盘报告)");
-            sb.AppendLine("你必须扮演一位冷静、极简的基金经理。禁止废话，禁止通用开场白，直接输出核心干货。");
-            sb.AppendLine("要求使用 Github Markdown 格式，利用表格或精炼列表。");
+            sb.AppendLine("\n## 📝 输出要求 (复盘报告格式)");
+            sb.AppendLine("请严格按以下格式输出 A 股大盘复盘报告：");
             sb.AppendLine("");
-            sb.AppendLine("### 🏛️ [日期] A 股大盘 AI 极简复盘");
+            sb.AppendLine("## 🏛️ [日期] A 股大盘 AI 复盘诊断");
             sb.AppendLine("");
-            sb.AppendLine("#### 1️⃣ 市场体温 (Snapshot)");
-            sb.AppendLine("- **多空比**: {上涨}/{下跌} ({上涨/总数}%)");
-            sb.AppendLine("- **高度板**: 涨停 {数量} / 跌停 {数量} (评估短线情绪风险)");
-            sb.AppendLine("- **量能**: {成交额} 亿 ({放量/缩量} 预警)");
+            sb.AppendLine("### 1. 市场总结 (Market Summary)");
+            sb.AppendLine("（2-3句话概括今日市场情绪、指数特征及流动性变化）");
             sb.AppendLine("");
-            sb.AppendLine("#### 2️⃣ 指数共振 (Pulse)");
-            sb.AppendLine("- **核心特征**: [用10字以内概括指数状态，例如：沪指破位/创业板缩量十字星]");
-            sb.AppendLine("- **风险点**: [核心预警点，无则忽略]");
+            sb.AppendLine("### 2. 指数点评 (Index Tactics)");
+            sb.AppendLine("（分析上证、深成、创业板的趋势关系，是否存在背离或协同）");
             sb.AppendLine("");
-            sb.AppendLine("#### 3️⃣ 题材轮动 (Rotation)");
-            sb.AppendLine("- **最强音**: {领涨板块} (1句话核心逻辑)");
-            sb.AppendLine("- **避雷点**: {领跌板块} (1句话核心风险)");
+            sb.AppendLine("### 3. 板块动态 (Sector Rotation)");
+            sb.AppendLine("（分析领涨板块背后的逻辑及其持续性，评估领跌板块的风险压力）");
             sb.AppendLine("");
-            sb.AppendLine("#### 4️⃣ 操盘决策 (Action Signal)");
-            sb.AppendLine("- **定性**: [进攻/防御/观望]");
-            sb.AppendLine("- **仓位**: [具体百分比]");
-            sb.AppendLine("- **防守**: [核心支撑位或风控逻辑]");
+            sb.AppendLine("### 4. 后市展望 (Outlook)");
+            sb.AppendLine("（结合当前数据与新闻，对后续 1-3 个交易日的走势进行预判）");
+            sb.AppendLine("");
+            sb.AppendLine("### 5. 策略建议 (Strategy Plan)");
+            sb.AppendLine("- **市场定性**: [进攻/均衡/防御/休息]");
+            sb.AppendLine("- **仓位指引**: [建议百分比]");
+            sb.AppendLine("- **关注重点**: [具体的行业或技术特征]");
+            sb.AppendLine("- **风险对冲**: [具体的防御思路]");
             sb.AppendLine("");
             sb.AppendLine("---");
-            sb.AppendLine("*注：极简推演，不构成建议。*");
+            sb.AppendLine("*注：以上分析仅基于量化数据及 AI 推导，不构成投资建议。市场有风险，入市需谨慎。*");
 
             return sb.ToString();
         }

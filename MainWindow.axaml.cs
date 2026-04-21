@@ -1881,7 +1881,7 @@ public partial class MainWindow : Window
             // 2. 构建 Prompt 并调用 AI
             string prompt = EnhancedAiPromptBuilder.BuildMarketReviewPrompt(overview, indexDataList);
             string aiResponse = await CallAiApiAsync(prompt);
-            string finalReport = aiResponse.Trim();
+            string finalReport = $"大盘复盘时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
 
             // 3. 展示结果
             if (!hideUi)
@@ -1889,7 +1889,7 @@ public partial class MainWindow : Window
                 Dispatcher.UIThread.Post(() => 
                 {
                     if (resultWindow != null) resultWindow.Close(); 
-                    new AnalysisResultWindow("A 股大盘 AI 极简复盘", finalReport).Show(this);
+                    new AnalysisResultWindow("A 股大盘 AI 复盘诊断", finalReport).Show(this);
                 });
             }
 
@@ -1959,7 +1959,7 @@ public partial class MainWindow : Window
                 
                 if (sendEmail)
                 {
-                    await SendEmailAsync($"[StockTracker] A 股大盘 AI 极简复盘 {DateTime.Now:yyyy-MM-dd}", marketAiResponse.Trim());
+                    await SendEmailAsync($"[StockTracker] A 股大盘 AI 复盘诊断 {DateTime.Now:yyyy-MM-dd}", $"大盘分析执行时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{marketAiResponse}");
                 }
             }
 
