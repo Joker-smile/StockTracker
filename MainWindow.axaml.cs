@@ -256,9 +256,13 @@ public partial class MainWindow : Window
 
         var settingsMenu = new MenuItem { Header = "⚙️ 配置设置" };
 
-        var geminiCfg = new MenuItem { Header = "🤖 Gemini / 邮件 / 定时任务" };
+        var geminiCfg = new MenuItem { Header = "🤖 AI / 邮件 / 定时任务" };
         geminiCfg.Click += async (s, e) => await ShowSettingsWindowAsync();
         settingsMenu.Items.Add(geminiCfg);
+
+        var marketReviewItem = new MenuItem { Header = "🔬 AI 大盘复盘分析" };
+        marketReviewItem.Click += async (s, e) => await RunMarketAnalysisAsync(sendNotification: true, hideUi: false);
+        menu.Items.Add(marketReviewItem);
 
         var scheduleToggle = new MenuItem { Header = "⏰ 定时任务" };
         scheduleToggle.Click += (s, e) =>
@@ -1845,6 +1849,71 @@ public partial class MainWindow : Window
         _scheduleTimer.Start();
     }
 
+    /// <summary>
+    /// 执行大盘 AI 复盘分析
+    /// </summary>
+    private async Task RunMarketAnalysisAsync(bool sendNotification, bool hideUi = false)
+    {
+        if (_isAiAnalysisRunning) return;
+        _isAiAnalysisRunning = true;
+
+        AnalysisResultWindow? resultWindow = null;
+        if (!hideUi)
+        {
+            Dispatcher.UIThread.Post(() => 
+            {
+                resultWindow = new AnalysisResultWindow("AI 大盘分析中", "正在抓取全市场涨跌分布、板块排行及宏观要闻，请稍候...");
+                resultWindow.Show(this);
+            });
+        }
+
+        try
+        {
+            // 1. 抓取大盘数据
+            var overview = await StockDataProvider.FetchMarketOverviewAsync(_appSettings.TavilyApiKey);
+            var marketIndices = await StockDataProvider.FetchMarketIndexAsync();
+            var indexDataList = new List<MarketEnvironmentAnalyzer.MarketIndexData>();
+            if (marketIndices != null)
+            {
+                foreach(var idx in marketIndices) indexDataList.Add(new MarketEnvironmentAnalyzer.MarketIndexData { Name = idx.Name, Price = idx.Price, PctChange = idx.PctChange });
+            }
+
+            // 2. 构建 Prompt 并调用 AI
+            string prompt = EnhancedAiPromptBuilder.BuildMarketReviewPrompt(overview, indexDataList);
+            string aiResponse = await CallAiApiAsync(prompt);
+            string finalReport = aiResponse.Trim();
+
+            // 3. 展示结果
+            if (!hideUi)
+            {
+                Dispatcher.UIThread.Post(() => 
+                {
+                    if (resultWindow != null) resultWindow.Close(); 
+                    new AnalysisResultWindow("A 股大盘 AI 极简复盘", finalReport).Show(this);
+                });
+            }
+
+            // 4. 推送通知
+            if (sendNotification)
+            {
+                // 邮件推送
+                await SendEmailAsync($"[StockTracker] A 股大盘 AI 复盘诊断 {DateTime.Now:yyyy-MM-dd}", finalReport);
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("MarketAnalysis Failure", ex);
+            if (!hideUi)
+            {
+                Dispatcher.UIThread.Post(() => { if (resultWindow != null) resultWindow.Close(); });
+            }
+        }
+        finally
+        {
+            _isAiAnalysisRunning = false;
+        }
+    }
+
     private async Task RunAiStockAnalysisAsync(bool sendEmail, bool hideUi = false)
     {
         if (_isAiAnalysisRunning) return;
@@ -1875,6 +1944,25 @@ public partial class MainWindow : Window
 
         try
         {
+            // === 第零步：前置大盘复盘 (如果开启) ===
+            if (_appSettings.MarketReviewEnabled)
+            {
+                // 注意：由于 _isAiAnalysisRunning 锁的存在，这里不能直接 await RunMarketAnalysisAsync
+                // 我们在内部手动耦合一次大盘数据的逻辑，或者先放开锁再运行。
+                // 推荐做法：在 RunAiStockAnalysisAsync 内部直接处理大盘逻辑。
+                var overview = await StockDataProvider.FetchMarketOverviewAsync(_appSettings.TavilyApiKey);
+                var marketIndicesCheck = await StockDataProvider.FetchMarketIndexAsync();
+                var indexListCheck = marketIndicesCheck?.Select(idx => new MarketEnvironmentAnalyzer.MarketIndexData { Name = idx.Name, Price = idx.Price, PctChange = idx.PctChange }).ToList() ?? new();
+                
+                string marketPrompt = EnhancedAiPromptBuilder.BuildMarketReviewPrompt(overview, indexListCheck);
+                string marketAiResponse = await CallAiApiAsync(marketPrompt);
+                
+                if (sendEmail)
+                {
+                    await SendEmailAsync($"[StockTracker] A 股大盘 AI 极简复盘 {DateTime.Now:yyyy-MM-dd}", marketAiResponse.Trim());
+                }
+            }
+
             // === 第一步：获取市场环境 ===
             var marketIndices = await StockDataProvider.FetchMarketIndexAsync();
             var indexDataList = new List<MarketEnvironmentAnalyzer.MarketIndexData>();

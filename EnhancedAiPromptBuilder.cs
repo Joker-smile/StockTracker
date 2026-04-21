@@ -329,5 +329,91 @@ namespace StockTracker
 
             return prompt.ToString();
         }
+
+        /// <summary>
+        /// 构建大盘复盘分析提示词
+        /// </summary>
+        public static string BuildMarketReviewPrompt(
+            MarketOverviewData overview,
+            List<MarketEnvironmentAnalyzer.MarketIndexData> indices)
+        {
+            var sb = new StringBuilder();
+
+            sb.AppendLine("# 🏛️ 全量大盘复盘分析专家");
+            sb.AppendLine("你是一位资深的宏观策略分析师，擅长从指数走势、市场广度、板块轮动及宏观新闻中洞察市场本质并制定应对策略。");
+
+            sb.AppendLine($"\n## 📅 市场数据 ({overview.Date})");
+            
+            if (indices != null && indices.Count > 0)
+            {
+                sb.AppendLine("### 📈 主要指数表现");
+                foreach (var idx in indices)
+                {
+                    string emoji = idx.PctChange switch
+                    {
+                        > 1 => "🟢",
+                        > 0 => "🔵",
+                        > -1 => "🟡",
+                        _ => "🔴"
+                    };
+                    sb.AppendLine($"- {emoji} **{idx.Name}**: {idx.Price:F2} ({idx.PctChange:+0.00;-0.00}%)");
+                }
+            }
+
+            sb.AppendLine("\n### 📊 市场广度与流动性");
+            sb.AppendLine($"- **涨跌分布**: 🟢 上涨 **{overview.UpCount}** | 🔴 下跌 **{overview.DownCount}** | ⚪ 平盘 **{overview.FlatCount}**");
+            sb.AppendLine($"- **高度活跃**: 🔥 涨停 **{overview.LimitUpCount}** | ❄️ 跌停 **{overview.LimitDownCount}**");
+            sb.AppendLine($"- **成交规模**: 💰 两市成交额 **{overview.TotalAmount:F1}** 亿");
+
+            sb.AppendLine("\n### 🎭 板块表现");
+            if (overview.TopSectors.Any())
+                sb.AppendLine($"- **🔥 领涨板块**: {string.Join(" | ", overview.TopSectors.Select(s => $"{s.Name}({s.ChangePct:+0.00;-0.00}%)"))}");
+            if (overview.BottomSectors.Any())
+                sb.AppendLine($"- **💧 领跌板块**: {string.Join(" | ", overview.BottomSectors.Select(s => $"{s.Name}({s.ChangePct:+0.00;-0.00}%)"))}");
+
+            sb.AppendLine("\n### 📰 宏观/市场要闻");
+            if (overview.MarketNews.Any())
+            {
+                foreach (var news in overview.MarketNews.Take(6))
+                {
+                    sb.AppendLine(news);
+                }
+            }
+            else
+            {
+                sb.AppendLine("- 暂无显著宏观变动。");
+            }
+
+            sb.AppendLine("\n---");
+
+            sb.AppendLine("\n## 📝 输出要求 (极致精炼复盘报告)");
+            sb.AppendLine("你必须扮演一位冷静、极简的基金经理。禁止废话，禁止通用开场白，直接输出核心干货。");
+            sb.AppendLine("要求使用 Github Markdown 格式，利用表格或精炼列表。");
+            sb.AppendLine("");
+            sb.AppendLine("### 🏛️ [日期] A 股大盘 AI 极简复盘");
+            sb.AppendLine("");
+            sb.AppendLine("#### 1️⃣ 市场体温 (Snapshot)");
+            sb.AppendLine("- **多空比**: {上涨}/{下跌} ({上涨/总数}%)");
+            sb.AppendLine("- **高度板**: 涨停 {数量} / 跌停 {数量} (评估短线情绪风险)");
+            sb.AppendLine("- **量能**: {成交额} 亿 ({放量/缩量} 预警)");
+            sb.AppendLine("");
+            sb.AppendLine("#### 2️⃣ 指数共振 (Pulse)");
+            sb.AppendLine("- **核心特征**: [用10字以内概括指数状态，例如：沪指破位/创业板缩量十字星]");
+            sb.AppendLine("- **风险点**: [核心预警点，无则忽略]");
+            sb.AppendLine("");
+            sb.AppendLine("#### 3️⃣ 题材轮动 (Rotation)");
+            sb.AppendLine("- **最强音**: {领涨板块} (1句话核心逻辑)");
+            sb.AppendLine("- **避雷点**: {领跌板块} (1句话核心风险)");
+            sb.AppendLine("");
+            sb.AppendLine("#### 4️⃣ 操盘决策 (Action Signal)");
+            sb.AppendLine("- **定性**: [进攻/防御/观望]");
+            sb.AppendLine("- **仓位**: [具体百分比]");
+            sb.AppendLine("- **防守**: [核心支撑位或风控逻辑]");
+            sb.AppendLine("");
+            sb.AppendLine("---");
+            sb.AppendLine("*注：极简推演，不构成建议。*");
+
+            return sb.ToString();
+        }
     }
 }

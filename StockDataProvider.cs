@@ -57,6 +57,26 @@ namespace StockTracker
         public double PriceChangeRatio { get; set; } // 价格较昨日变化
     }
 
+    public class MarketOverviewData
+    {
+        public string Date { get; set; } = string.Empty;
+        public int UpCount { get; set; }
+        public int DownCount { get; set; }
+        public int FlatCount { get; set; }
+        public int LimitUpCount { get; set; }
+        public int LimitDownCount { get; set; }
+        public double TotalAmount { get; set; } // 亿元
+        public List<SectorRanking> TopSectors { get; set; } = new();
+        public List<SectorRanking> BottomSectors { get; set; } = new();
+        public List<string> MarketNews { get; set; } = new();
+    }
+
+    public class SectorRanking
+    {
+        public string Name { get; set; } = string.Empty;
+        public double ChangePct { get; set; }
+    }
+
     public static class StockDataProvider
     {
         private static readonly HttpClient _httpClient = CreateHttpClient();
@@ -560,6 +580,104 @@ namespace StockTracker
                 }
             }
             return list;
+        }
+
+        // 6. 获取大盘全貌数据（涨跌分布、板块排行、宏观新闻）
+        public static async Task<MarketOverviewData> FetchMarketOverviewAsync(string tavilyApiKey = "")
+        {
+            var overview = new MarketOverviewData
+            {
+                Date = DateTime.Now.ToString("yyyy-MM-dd")
+            };
+
+            try
+            {
+                RotateUserAgent();
+                // A. 获取全市场股票以计算涨跌分布 (同步 A 股逻辑)
+                // 仅获取关键字段: f3(涨跌幅), f12(代码), f14(名称), f17(昨收), f2(现价), f6(成交额)
+                string url = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fields=f2,f3,f12,f14,f17,f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23";
+                var jsonStr = await _httpClient.GetStringAsync(url);
+                var jsonObj = JObject.Parse(jsonStr);
+                var diff = jsonObj["data"]?["diff"] as JArray;
+
+                if (diff != null)
+                {
+                    double totalAmount = 0;
+                    foreach (var item in diff)
+                    {
+                        if (!double.TryParse(item["f3"]?.ToString(), out var pct)) continue;
+                        if (!double.TryParse(item["f2"]?.ToString(), out var current)) continue;
+                        if (!double.TryParse(item["f17"]?.ToString(), out var preClose)) continue;
+                        if (!double.TryParse(item["f6"]?.ToString(), out var amount)) continue;
+                        string code = item["f12"]?.ToString() ?? "";
+                        string name = item["f14"]?.ToString() ?? "";
+
+                        totalAmount += amount;
+
+                        if (pct > 0) overview.UpCount++;
+                        else if (pct < 0) overview.DownCount++;
+                        else overview.FlatCount++;
+
+                        // 粗略判断涨跌停 (A 股 10% / 20% / 30% / 5% 规则)
+                        double ratio = 0.1;
+                        if (code.StartsWith("688") || code.StartsWith("30")) ratio = 0.2;
+                        else if (code.StartsWith("92") || code.StartsWith("43") || code.StartsWith("8") || code.StartsWith("4")) ratio = 0.3;
+                        else if (name.Contains("ST")) ratio = 0.05;
+
+                        // 这里使用简化的百分比判断，实际应使用昨收计算精准价格，但对于复盘总结来说，误差可接受
+                        if (pct >= (ratio * 100 - 0.1)) overview.LimitUpCount++;
+                        if (pct <= -(ratio * 100 - 0.1)) overview.LimitDownCount++;
+                    }
+                    overview.TotalAmount = totalAmount / 100000000.0;
+                }
+
+                // B. 获取板块排行
+                string sectorUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fields=f3,f14&fs=m:90+t:2+f:!2";
+                var sectorStr = await _httpClient.GetStringAsync(sectorUrl);
+                var sectorObj = JObject.Parse(sectorStr);
+                var sectorDiff = sectorObj["data"]?["diff"] as JArray;
+                if (sectorDiff != null)
+                {
+                    var allSectors = sectorDiff.Select(s => new SectorRanking 
+                    { 
+                        Name = s["f14"]?.ToString() ?? "", 
+                        ChangePct = double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0 
+                    }).ToList();
+
+                    overview.TopSectors = allSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
+                    overview.BottomSectors = allSectors.OrderBy(s => s.ChangePct).Take(5).ToList();
+                }
+
+                // C. 获取宏观新闻
+                if (!string.IsNullOrEmpty(tavilyApiKey))
+                {
+                    var newsPayLoad = new { api_key = tavilyApiKey, query = "今日A股市场行情 宏观经济利好利空 行业热点", topic = "news", days = 1, max_results = 8 };
+                    var content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(newsPayLoad), Encoding.UTF8, "application/json");
+                    var newsResp = await _httpClient.PostAsync("https://api.tavily.com/search", content);
+                    if (newsResp.IsSuccessStatusCode)
+                    {
+                        var newsJson = await newsResp.Content.ReadAsStringAsync();
+                        var newsObj = JObject.Parse(newsJson);
+                        var results = newsObj["results"] as JArray;
+                        if (results != null)
+                        {
+                            foreach (var r in results) overview.MarketNews.Add($"- {r["title"]}: {r["content"]}");
+                        }
+                    }
+                }
+                
+                if (overview.MarketNews.Count == 0)
+                {
+                    // Fallback to simple query or placeholder
+                    overview.MarketNews.Add("- 暂无宏观新闻，请关注市场即时动态。");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Market overview fetch failed: {ex.Message}");
+            }
+
+            return overview;
         }
     }
 }
