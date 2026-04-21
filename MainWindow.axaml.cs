@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     private DispatcherTimer? _scheduleTimer;
     private bool _isAiAnalysisRunning = false;
     private DateTime _lastScheduleRunDate = DateTime.MinValue;
+    private HashSet<string> _triggeredTimesToday = new();
+    private List<TimeSpan> _targetScheduleTimes = new();
     private List<(string Name, string Code, string Price, string Pct, string Sector, string Pred)> _lastDisplayData = new();
     private bool _isContextMenuOpen = false;
 
@@ -1793,26 +1795,51 @@ public partial class MainWindow : Window
     private void SetupScheduleTimer()
     {
         _scheduleTimer?.Stop();
+        _targetScheduleTimes.Clear();
         
         if (!_appSettings.ScheduleEnabled || string.IsNullOrWhiteSpace(_appSettings.ScheduleTime))
             return;
 
-        if (!TimeSpan.TryParseExact(_appSettings.ScheduleTime, "h\\:mm", null, out TimeSpan targetTime))
+        // 解析逗号分隔的时间点，并去重
+        var timeParts = _appSettings.ScheduleTime.Split(new[] { ',', ';', '，', '；' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in timeParts)
         {
-            if (!TimeSpan.TryParse(_appSettings.ScheduleTime, out targetTime))
-                return;
+            string cleanPart = part.Trim();
+            if (TimeSpan.TryParseExact(cleanPart, "h\\:mm", null, out TimeSpan targetTime))
+            {
+                if (!_targetScheduleTimes.Contains(targetTime)) _targetScheduleTimes.Add(targetTime);
+            }
+            else if (TimeSpan.TryParse(cleanPart, out targetTime))
+            {
+                if (!_targetScheduleTimes.Contains(targetTime)) _targetScheduleTimes.Add(targetTime);
+            }
         }
+
+        if (_targetScheduleTimes.Count == 0) return;
 
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += async (s, e) =>
         {
             var now = DateTime.Now;
-            if (now.Date > _lastScheduleRunDate.Date && 
-                now.Hour == targetTime.Hours && 
-                now.Minute == targetTime.Minutes)
+            
+            // 跨天检查：如果日期变了，清空今日已触发记录
+            if (now.Date > _lastScheduleRunDate.Date)
             {
+                _triggeredTimesToday.Clear();
                 _lastScheduleRunDate = now.Date;
-                await RunAiStockAnalysisAsync(sendEmail: true, hideUi: true); // 后台定时执行，不打扰使用者屏幕（静默发信）
+            }
+
+            foreach (var target in _targetScheduleTimes)
+            {
+                string timeKey = $"{target.Hours:D2}:{target.Minutes:D2}";
+                
+                if (now.Hour == target.Hours && 
+                    now.Minute == target.Minutes && 
+                    !_triggeredTimesToday.Contains(timeKey))
+                {
+                    _triggeredTimesToday.Add(timeKey);
+                    await RunAiStockAnalysisAsync(sendEmail: true, hideUi: true); // 后台定时执行
+                }
             }
         };
         _scheduleTimer.Start();

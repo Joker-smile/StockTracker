@@ -23,6 +23,8 @@ public class SettingsWindow : Window
     private readonly TextBox _aiModelBox;
 
     private readonly Dictionary<string, string> _platformKeys = new();
+    private readonly Dictionary<string, string> _platformUrls = new();
+    private readonly Dictionary<string, string> _platformModels = new();
     private string _currentPlatform = "";
 
     // ── 搜索 ──
@@ -45,7 +47,7 @@ public class SettingsWindow : Window
         Width = 480;
         SizeToContent = SizeToContent.Height;
         SystemDecorations = SystemDecorations.None;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
         CanResize = false;
         TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
         Background = Brushes.Transparent;
@@ -70,44 +72,47 @@ public class SettingsWindow : Window
         _platformKeys["智谱 (GLM)"] = settings.GlmApiKey ?? "";
         _platformKeys["自定义平台"] = settings.CustomApiKey ?? "";
 
+        // 初始化平台的地址和模型缓存
+        _platformUrls["Gemini"] = ""; 
+        _platformUrls["DeepSeek"] = "https://api.deepseek.com/v1";
+        _platformUrls["阿里云百炼 (Qwen)"] = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+        _platformUrls["智谱 (GLM)"] = "https://open.bigmodel.cn/api/paas/v4";
+        _platformUrls["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiBaseUrl ?? "") : "";
+
+        _platformModels["Gemini"] = "gemini-2.5-flash,gemini-3-flash-preview,gemini-2.0-flash,gemini-1.5-flash";
+        _platformModels["DeepSeek"] = "deepseek-chat";
+        _platformModels["阿里云百炼 (Qwen)"] = "qwen-plus,qwen-max";
+        _platformModels["智谱 (GLM)"] = "glm-4-flash";
+        _platformModels["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiModel ?? "") : "";
+
         // 恢复选中状态
         string initPlatform = _platformBox.Items.Cast<string>().FirstOrDefault(x => x.Contains(settings.AiPlatform ?? "Gemini")) ?? "自定义平台";
         _currentPlatform = initPlatform;
         _platformBox.SelectedItem = initPlatform;
 
-        _aiApiKeyBox  = MakeTextBox(_platformKeys[initPlatform],  "填入 API Key（必填）", '*');
-        _aiBaseUrlBox = MakeTextBox(settings.AiBaseUrl, "留空=平台默认 | 其他如: https://api.deepseek.com/v1");
-        _aiModelBox   = MakeTextBox(settings.AiModel, "留空=自动默认 | 支持逗号分隔填入多模型(自动降级)");
+        _aiApiKeyBox  = MakeTextBox(_platformKeys[initPlatform] ?? "",  "填入 API Key（必填）", '*');
+        _aiBaseUrlBox = MakeTextBox(settings.AiBaseUrl ?? "", "留空=平台默认 | 其他如: https://api.deepseek.com/v1");
+        _aiModelBox   = MakeTextBox(settings.AiModel ?? "", "留空=自动默认 | 支持逗号分隔填入多模型(自动降级)");
 
         // 联动事件：选择平台自动带出默认值
         _platformBox.SelectionChanged += (s, e) =>
         {
             if (_platformBox.SelectedItem is string platform)
             {
-                // 先保存当前输入框的 Key 到旧平台缓存中
+                // 1. 先保存当前 UI 的输入到旧平台缓存中
                 if (!string.IsNullOrEmpty(_currentPlatform))
                 {
                     _platformKeys[_currentPlatform] = (_aiApiKeyBox.Text ?? "").Trim();
+                    _platformUrls[_currentPlatform] = (_aiBaseUrlBox.Text ?? "").Trim();
+                    _platformModels[_currentPlatform] = (_aiModelBox.Text ?? "").Trim();
                 }
 
                 _currentPlatform = platform;
                 
-                // 将被选新平台的 Key 加载进输入框（若无则默认为空）
+                // 2. 加载新平台的缓存到输入框
                 _aiApiKeyBox.Text = _platformKeys.TryGetValue(platform, out string? key) ? key : "";
-
-                // 重置地址与模型
-                if (platform == "Gemini") {
-                    _aiBaseUrlBox.Text = ""; _aiModelBox.Text = "gemini-2.5-flash,gemini-3-flash-preview,gemini-2.0-flash,gemini-1.5-flash";
-                }
-                else if (platform == "DeepSeek") {
-                    _aiBaseUrlBox.Text = "https://api.deepseek.com/v1"; _aiModelBox.Text = "deepseek-chat";
-                }
-                else if (platform == "阿里云百炼 (Qwen)") {
-                    _aiBaseUrlBox.Text = "https://dashscope.aliyuncs.com/compatible-mode/v1"; _aiModelBox.Text = "qwen-plus,qwen-max";
-                }
-                else if (platform == "智谱 (GLM)") {
-                    _aiBaseUrlBox.Text = "https://open.bigmodel.cn/api/paas/v4"; _aiModelBox.Text = "glm-4-flash";
-                }
+                _aiBaseUrlBox.Text = _platformUrls.TryGetValue(platform, out string? url) ? url : "";
+                _aiModelBox.Text = _platformModels.TryGetValue(platform, out string? model) ? model : "";
             }
         };
 
@@ -121,7 +126,7 @@ public class SettingsWindow : Window
             IsChecked = settings.ScheduleEnabled,
             Foreground = Brushes.LightGray
         };
-        _scheduleTimeBox = MakeTextBox(settings.ScheduleTime, "执行时间，格式 HH:mm（如 09:30）");
+        _scheduleTimeBox = MakeTextBox(settings.ScheduleTime, "执行时间，多个用逗号隔开（如 09:15,15:00）");
 
         // ── 构建 UI ──
         var mainStack = new StackPanel { Margin = new Thickness(16), Spacing = 10 };
@@ -188,7 +193,7 @@ public class SettingsWindow : Window
         mainStack.Children.Add(MakeLabeledRow("执行时间 :", _scheduleTimeBox));
         mainStack.Children.Add(new TextBlock
         {
-            Text = "每天在指定时间自动运行 AI 分析并推送邮件通知",
+            Text = "每天在指定时间自动运行 AI 分析并推送邮件通知，支持多个时间点，用逗号隔开，例如：09:15,15:00",
             Foreground = Brush.Parse("#FF888888"),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap
@@ -311,9 +316,12 @@ public class SettingsWindow : Window
             AiBaseUrl     = (_aiBaseUrlBox.Text ?? "").Trim(),
             AiModel       = (_aiModelBox.Text   ?? "").Trim(),
             TavilyApiKey  = (_tavilyKeyBox.Text ?? "").Trim(),
-            EmailSmtpHost = "",
-            EmailSmtpPort = 0,
-            EmailSmtpSsl  = true,
+            
+            // 保留原有 SMTP 配置，防止被覆盖
+            EmailSmtpHost = UpdatedSettings.EmailSmtpHost,
+            EmailSmtpPort = UpdatedSettings.EmailSmtpPort,
+            EmailSmtpSsl  = UpdatedSettings.EmailSmtpSsl,
+            
             EmailUser     = (_smtpUserBox.Text  ?? "").Trim(),
             EmailPassword = (_smtpPassBox.Text  ?? "").Trim(),
             EmailTo       = (_smtpToBox.Text    ?? "").Trim(),

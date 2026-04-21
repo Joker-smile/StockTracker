@@ -6,7 +6,7 @@
         SystemDecorations="None"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         CanResize="False"
         TransparencyLevelHint="Transparent"
         Background="Transparent"

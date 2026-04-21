@@ -18,7 +18,7 @@ public class AnalysisResultWindow : Window
         Width = 560;
         Height = 620;
         SystemDecorations = SystemDecorations.None;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
         CanResize = true;
         TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
         Background = Brushes.Transparent;

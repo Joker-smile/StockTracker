@@ -11,7 +11,7 @@
         ShowInTaskbar="False"
         CanResize="False"
         SizeToContent="WidthAndHeight"
-        WindowStartupLocation="Manual">
+        WindowStartupLocation="CenterScreen">
 
     <Border Background="#99000000" CornerRadius="4" Padding="0">
         <StackPanel>
