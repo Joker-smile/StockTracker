@@ -75,7 +75,7 @@ public class SettingsWindow : Window
         _platformKeys["智谱 (GLM)"] = settings.GlmApiKey ?? "";
         _platformKeys["自定义平台"] = settings.CustomApiKey ?? "";
 
-        _platformUrls["Gemini"] = ""; 
+        _platformUrls["Gemini"] = "https://generativelanguage.googleapis.com/v1beta"; 
         _platformUrls["DeepSeek"] = "https://api.deepseek.com/v1";
         _platformUrls["阿里云百炼 (Qwen)"] = "https://dashscope.aliyuncs.com/compatible-mode/v1";
         _platformUrls["智谱 (GLM)"] = "https://open.bigmodel.cn/api/paas/v4";
@@ -92,8 +92,8 @@ public class SettingsWindow : Window
         _platformBox.SelectedItem = initPlatform;
 
         _aiApiKeyBox  = MakeTextBox(_platformKeys[initPlatform] ?? "",  "API Key", '*');
-        _aiBaseUrlBox = MakeTextBox(settings.AiBaseUrl ?? "", "留空=默认 | 如: https://api.xxx.com/v1");
-        _aiModelBox   = MakeTextBox(settings.AiModel ?? "", "留空=自动 | 支持逗号分隔多模型");
+        _aiBaseUrlBox = MakeTextBox(!string.IsNullOrEmpty(settings.AiBaseUrl) ? settings.AiBaseUrl : _platformUrls[initPlatform], "接口地址");
+        _aiModelBox   = MakeTextBox(!string.IsNullOrEmpty(settings.AiModel) ? settings.AiModel : _platformModels[initPlatform], "模型名称");
 
         _platformBox.SelectionChanged += (s, e) =>
         {
