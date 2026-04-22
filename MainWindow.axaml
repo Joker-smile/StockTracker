@@ -18,7 +18,7 @@
             <!-- Header bar with min/close buttons -->
             <Border Name="HeaderBar" Background="#FF282828" Height="12" Padding="2,0">
                 <Grid>
-                    <TextBlock Text="StockTracker" Foreground="#FF666666" FontSize="8"
+                    <TextBlock Name="TitleBlock" Text="StockTracker" Foreground="#FF666666" FontSize="8"
                                VerticalAlignment="Center" HorizontalAlignment="Left"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
                         <Button Name="BtnMin" Content="—" FontSize="7" Padding="2,0"

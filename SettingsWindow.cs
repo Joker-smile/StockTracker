@@ -6,6 +6,8 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using Avalonia.Threading;
 
 namespace StockTracker;
 
@@ -153,6 +155,57 @@ public class SettingsWindow : Window
         mainStack.Children.Add(_marketReviewEnabledBox);
         mainStack.Children.Add(_scheduleEnabledBox);
         mainStack.Children.Add(MakeLabeledRow("执行时间:", _scheduleTimeBox));
+
+        var txtVersion = new TextBlock { Text = $"当前版本: {Program.APP_VERSION}", Foreground = Brushes.Gray, FontSize = 11, Margin = new Thickness(0, 5, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
+        var btnUpdate = new Button { Content = "🔄 检查更新", HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brush.Parse("#FF444444"), Foreground = Brushes.White, Margin = new Thickness(0, 4, 0, 0) };
+        bool hasUpdateFound = false;
+        string downloadUrl = "";
+
+        btnUpdate.Click += async (_, _) => 
+        {
+            if (!hasUpdateFound)
+            {
+                btnUpdate.IsEnabled = false;
+                btnUpdate.Content = "📡 正在检查...";
+                var info = await UpdateService.CheckForUpdateAsync();
+                if (info.HasUpdate)
+                {
+                    hasUpdateFound = true;
+                    downloadUrl = info.DownloadUrl;
+                    btnUpdate.Content = $"🚀 发现新版本 {info.Version}，点击更新";
+                    btnUpdate.Background = Brush.Parse("#FF007ACC");
+                    btnUpdate.IsEnabled = true;
+                }
+                else
+                {
+                    btnUpdate.Content = "✅ 已是最新版本";
+                    await Task.Delay(2000);
+                    btnUpdate.Content = "🔄 检查更新";
+                    btnUpdate.IsEnabled = true;
+                }
+            }
+            else
+            {
+                // 执行下载
+                btnUpdate.IsEnabled = false;
+                try 
+                {
+                    await UpdateService.DownloadAndInstallAsync(downloadUrl, p => 
+                    {
+                        Dispatcher.UIThread.Post(() => btnUpdate.Content = $"📥 正在下载 {(int)(p * 100)}%");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    btnUpdate.Content = "❌ 更新失败: " + ex.Message;
+                    btnUpdate.IsEnabled = true;
+                    hasUpdateFound = false; // 重置状态
+                }
+            }
+        };
+
+        mainStack.Children.Add(txtVersion);
+        mainStack.Children.Add(btnUpdate);
 
         // 按钮
         var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10, Margin = new Thickness(0, 10, 0, 0) };

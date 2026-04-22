@@ -78,6 +78,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        TitleBlock.Text = $"StockTracker {Program.APP_VERSION}";
 
         // Register GB2312 support
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
