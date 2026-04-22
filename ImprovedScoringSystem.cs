@@ -555,17 +555,17 @@ namespace StockTracker
                 double basePosition = marketCondition == MarketCondition.Strong ? 25 : 15;
                 score.PositionSize = basePosition * (score.ConfidenceLevel / 100.0);
 
-                score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.97); // 略低于现价
-                score.StopLossPrice = (decimal)(ctx.CurrentPrice * 0.92); // 8%止损
-                score.TargetPrice = (decimal)(ctx.CurrentPrice * 1.12); // 12%目标（更保守）
+                score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.97); // 基础参考，具体见 SmartStop
+                score.StopLossPrice = 0; // 废弃，由 HighWinRateStrategies.SmartStop 替代
+                score.TargetPrice = 0;   // 废弃，由 HighWinRateStrategies.SmartStop 替代
             }
             else if (score.OverallScore >= 65 && score.RiskScore >= 55 && score.ConfidenceLevel >= 50)
             {
                 score.ActionAdvice = "谨慎买入";
                 score.PositionSize = 8;
-                score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.94); // 等待更大回踩
-                score.StopLossPrice = (decimal)(ctx.CurrentPrice * 0.90);
-                score.TargetPrice = (decimal)(ctx.CurrentPrice * 1.08);
+                score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.94); 
+                score.StopLossPrice = 0;
+                score.TargetPrice = 0;
             }
             else
             {

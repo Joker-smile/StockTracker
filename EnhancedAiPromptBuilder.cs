@@ -106,10 +106,10 @@ namespace StockTracker
             sb.AppendLine("- **当前价格**: [价格]元 | **建议仓位**: [仓位%]");
             sb.AppendLine("");
             sb.AppendLine("### 🎯 操作策略");
-            sb.AppendLine("- **建议买入价**: [价格]元 ([较现价 上涨/下跌 X%])");
-            sb.AppendLine("- **止损价格**: [价格]元 ([下跌X%])");
-            sb.AppendLine("- **目标价格**: [价格]元 ([上涨X%])");
-            sb.AppendLine("- **持有周期**: [短期/中期/长期]");
+            sb.AppendLine("- **建议操作**: [短期买入/中长线建仓/严格止损/反弹减仓/坚决观望]");
+            sb.AppendLine("- **ATR动态止损**: [价格]元 ([说明])");
+            sb.AppendLine("- **阶梯止盈目标**: [价格1] / [价格2]");
+            sb.AppendLine("- **择时建议**: [说明最佳入场时机]");
             sb.AppendLine("");
             sb.AppendLine("### ✅ 核心优势");
             sb.AppendLine("- [列出2-3个最关键的积极信号，每个信号要具体且量化]");
@@ -131,10 +131,11 @@ namespace StockTracker
 
             // === 6. 特别提醒 ===
             sb.AppendLine("\n## 🚨 重要提醒");
-            sb.AppendLine("1. **深度诊断**: 你必须根据提供的数据对每只股票进行深度剖析，不要泛泛而谈，要结合具体的技术图形特征和资金流向进行逻辑推演。");
-            sb.AppendLine("2. **全量诊断**: 你必须对用户列表中的每一只股票进行分析。评分反映了量化胜率，但你的分析应体现更多深度推演。");
-            sb.AppendLine("3. **评分参考**: 评分仅代表量化模型建议，不要因为评分低而强制过滤或拒绝分析。");
-            sb.AppendLine("4. **市场环境**: 当前市场环境为" + (marketCondition switch
+            sb.AppendLine("1. **量化数据解读员**: 你的角色是量化数据解读员。所有支撑/阻力位、买卖点、止损位**必须**使用【量化交易计划】中提供的数据，绝不能自行生造。");
+            sb.AppendLine("2. **全量诊断**: 你必须对用户列表中的每一只股票进行分析。");
+            sb.AppendLine("3. **客观防守**: 如果量化评分差且【择时建议】提示风险，请坚决给出【观望】或【减仓】建议。");
+            sb.AppendLine("4. **持有周期判定**: 若估值(PE/PB)低且ROE高，可判定为【中长线建仓】；若技术面强但基本面差，判定为【短期买入】。");
+            sb.AppendLine("5. **市场环境**: 当前市场环境为" + (marketCondition switch
             {
                 MarketCondition.Crash => "暴跌状态，强烈建议空仓观望",
                 MarketCondition.Weak => "弱势状态，建议寻找具备底部分型或逆势抗跌的个股",
@@ -200,6 +201,28 @@ namespace StockTracker
                 sb.AppendLine($"- 均线:MA5={ctx.MA5:F2} MA10={ctx.MA10:F2} MA20={ctx.MA20:F2}");
                 sb.AppendLine($"- 乖离率:MA5={ctx.BiasMA5:+0.00;-0.00}% MA10={ctx.BiasMA10:+0.00;-0.00}% " +
                              $"形态:{ctx.MAAlignment}");
+                             
+                if (ctx.TechScore != null)
+                {
+                    sb.AppendLine("**🛠️ 高级技术指标**:");
+                    sb.AppendLine($"- MACD: 值={ctx.TechScore.MACD:F3} 柱状图={ctx.TechScore.MACDHistogram:F3}");
+                    sb.AppendLine($"- RSI/KDJ: RSI(12)={ctx.TechScore.RSI12:F1} KDJ={ctx.TechScore.KDJ_K:F1}/{ctx.TechScore.KDJ_D:F1}/{ctx.TechScore.KDJ_J:F1}");
+                    sb.AppendLine($"- 支撑阻力: 支撑位1={ctx.TechScore.SupportLevel1:F2} 支撑位2={ctx.TechScore.SupportLevel2:F2} 阻力位1={ctx.TechScore.ResistanceLevel1:F2}");
+                    if (ctx.TechScore.Signals.Count > 0)
+                        sb.AppendLine($"- 信号: {string.Join(", ", ctx.TechScore.Signals.Take(3))}");
+                }
+                
+                if (ctx.SmartStop != null && ctx.SmartStop.DynamicStopLoss > 0)
+                {
+                    sb.AppendLine("**🎯 量化交易计划 (参考)**:");
+                    sb.AppendLine($"- ATR动态止损: {ctx.SmartStop.DynamicStopLoss:F2}元 (强防守位)");
+                    sb.AppendLine($"- 阶梯止盈位: 第一目标={ctx.SmartStop.TargetPrice1:F2} 第二目标={ctx.SmartStop.TargetPrice2:F2} 第三目标={ctx.SmartStop.TargetPrice3:F2}");
+                }
+                
+                if (ctx.Timing != null && !string.IsNullOrEmpty(ctx.Timing.BestTimingWindow))
+                {
+                    sb.AppendLine($"- 择时建议: {ctx.Timing.BestTimingWindow}");
+                }
                 sb.AppendLine("");
 
                 sb.AppendLine("**🏦 基本面**:");
@@ -381,7 +404,11 @@ namespace StockTracker
             }
             else
             {
-                sb.AppendLine("- 暂无显著宏观变动。");
+                sb.AppendLine("- 短期策略：结合技术面（MA5/10、MACD、KDJ）和资金面（主力流入、换手率）分析");
+                sb.AppendLine("- 中期策略：结合技术形态、筹码分布及波段支撑阻力位（Support/Resistance）");
+                sb.AppendLine("- 长期策略：侧重基本面（PE、PB、ROE、现金流）及行业地位");
+                sb.AppendLine("- **必须包含明确的价格锚点**，请直接参考并引用[量化交易计划]中的 ATR 动态止损价和阶梯止盈目标价，不要自行生硬计算。");
+                sb.AppendLine("- **结合择时**：结合[择时建议]，明确当前是否处于良好买点。 暂无显著宏观变动。");
             }
 
             sb.AppendLine("\n---");

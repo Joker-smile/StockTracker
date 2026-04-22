@@ -2009,6 +2009,10 @@ public partial class MainWindow : Window
                 // 使用增强的量化评分系统
                 var score = ImprovedWinRateScoring.CalculateEnhancedScore(ctx, marketCondition);
                 stockScores.Add(score);
+
+                // 计算精准择时与智能止损策略
+                ctx.Timing = HighWinRateStrategies.CalculateTimingScore(ctx, ctx.RecentPrices, ctx.RecentVolumes);
+                ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
             }
 
             // === 第三步：获取回测历史表现数据 ===

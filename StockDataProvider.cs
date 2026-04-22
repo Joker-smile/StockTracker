@@ -55,6 +55,14 @@ namespace StockTracker
         // 昨日对比异动
         public double VolumeChangeRatio { get; set; } // 成交量较昨日变化倍数
         public double PriceChangeRatio { get; set; } // 价格较昨日变化
+
+        // === 新增：高级量化指标与策略 ===
+        public TechnicalAnalysisScore TechScore { get; set; } = new();
+        public HighWinRateStrategies.TimingScore Timing { get; set; } = new();
+        public HighWinRateStrategies.SmartStopLoss SmartStop { get; set; } = new();
+
+        public List<double> RecentPrices { get; set; } = new();
+        public List<double> RecentVolumes { get; set; } = new();
     }
 
     public class MarketOverviewData
@@ -207,21 +215,32 @@ namespace StockTracker
             {
                 string market = GetEastMoneyMarketPrefix(code);
                 // 近 200 个交易日的价量数据以推演均线和筹码分布
-                string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=101&fqt=1&end=20500101&lmt=200&fields1=f1&fields2=f51,f53,f56";
+                string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=101&fqt=1&end=20500101&lmt=200&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
                 var jsonStr = await _httpClient.GetStringAsync(url);
                 var jsonObj = JObject.Parse(jsonStr);
                 
                 var klines = jsonObj["data"]?["klines"] as JArray;
                 if (klines != null && klines.Count > 0)
                 {
+                    var opens = new List<double>();
                     var closes = new List<double>();
+                    var highs = new List<double>();
+                    var lows = new List<double>();
                     var volumes = new List<double>();
                     foreach (var k in klines)
                     {
-                        var parts = k.ToString().Split(','); // "2024-01-01,10.00,12345"
-                        if (parts.Length >= 3 && double.TryParse(parts[1], out var c) && double.TryParse(parts[2], out var v))
+                        var parts = k.ToString().Split(','); // "Date,Open,Close,High,Low,Volume"
+                        if (parts.Length >= 6 && 
+                            double.TryParse(parts[1], out var o) && 
+                            double.TryParse(parts[2], out var c) && 
+                            double.TryParse(parts[3], out var h) && 
+                            double.TryParse(parts[4], out var l) && 
+                            double.TryParse(parts[5], out var v))
                         {
+                            opens.Add(o);
                             closes.Add(c);
+                            highs.Add(h);
+                            lows.Add(l);
                             volumes.Add(v);
                         }
                     }
@@ -250,14 +269,22 @@ namespace StockTracker
                     context.BiasMA10 = context.MA10 > 0 ? (currentPrice - context.MA10) / context.MA10 * 100 : 0;
                     context.BiasMA20 = context.MA20 > 0 ? (currentPrice - context.MA20) / context.MA20 * 100 : 0;
 
-                    // 判断均线走势
+                    // 计算高级技术指标 (MACD, RSI, 布林带, 支撑阻力等)
+                    if (closes.Count > 0)
+                    {
+                        context.TechScore = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(closes, volumes, highs, lows);
+                        context.RecentPrices = closes;
+                        context.RecentVolumes = volumes;
+                    }
+
+                    // 简单判断均线排列
                     if (context.MA5 > context.MA10 && context.MA10 > context.MA20)
-                        context.MAAlignment = "多头排列 (强势上涨)";
+                        context.MAAlignment = "多头排列";
                     else if (context.MA5 < context.MA10 && context.MA10 < context.MA20)
-                        context.MAAlignment = "空头排列 (弱势下跌)";
+                        context.MAAlignment = "空头排列";
                     else
-                        context.MAAlignment = "震荡缠绕 (方向不明)";
-                    
+                        context.MAAlignment = "震荡交织";
+                        
                     // ======= 昨日量价异动追踪 =======
                     if (closes.Count >= 2 && volumes.Count >= 2)
                     {
