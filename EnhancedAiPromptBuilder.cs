@@ -106,7 +106,7 @@ namespace StockTracker
             sb.AppendLine("- **当前价格**: [价格]元 | **建议仓位**: [仓位%]");
             sb.AppendLine("");
             sb.AppendLine("### 🎯 操作策略");
-            sb.AppendLine("- **建议买入价**: [价格]元 ([当前价的X%])");
+            sb.AppendLine("- **建议买入价**: [价格]元 ([较现价 上涨/下跌 X%])");
             sb.AppendLine("- **止损价格**: [价格]元 ([下跌X%])");
             sb.AppendLine("- **目标价格**: [价格]元 ([上涨X%])");
             sb.AppendLine("- **持有周期**: [短期/中期/长期]");
