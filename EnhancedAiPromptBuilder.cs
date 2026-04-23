@@ -198,7 +198,6 @@ namespace StockTracker
                 sb.AppendLine("**📈 实时行情**:");
                 sb.AppendLine($"- 现价:{ctx.CurrentPrice:F2}元 (涨跌{ctx.PctChange:+0.00;-0.00}%) " +
                              $"今日量比:{ctx.VolumeRatio:F2} 换手:{ctx.TurnoverRate:F2}%");
-                sb.AppendLine($"- 异动特征: 较昨日放量={ctx.VolumeChangeRatio:F2}倍 价格波动={ctx.PriceChangeRatio:+0.00;-0.00}%");
                 sb.AppendLine($"- 均线:MA5={ctx.MA5:F2} MA10={ctx.MA10:F2} MA20={ctx.MA20:F2}");
                 sb.AppendLine($"- 乖离率:MA5={ctx.BiasMA5:+0.00;-0.00}% MA10={ctx.BiasMA10:+0.00;-0.00}% " +
                              $"形态:{ctx.MAAlignment}");

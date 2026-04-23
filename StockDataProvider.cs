@@ -627,9 +627,9 @@ namespace StockTracker
                 var jsonObj = JObject.Parse(jsonStr);
                 var diff = jsonObj["data"]?["diff"] as JArray;
 
+                double totalAmount = 0;
                 if (diff != null)
                 {
-                    double totalAmount = 0;
                     foreach (var item in diff)
                     {
                         if (!double.TryParse(item["f3"]?.ToString(), out var pct)) continue;
@@ -655,7 +655,32 @@ namespace StockTracker
                         if (pct >= (ratio * 100 - 0.1)) overview.LimitUpCount++;
                         if (pct <= -(ratio * 100 - 0.1)) overview.LimitDownCount++;
                     }
-                    overview.TotalAmount = totalAmount / 100000000.0;
+                }
+
+                // 获取官方准确的两市成交额 (上证+深证)
+                try
+                {
+                    string indexUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&fields=f6&fs=i:1.000001,i:0.399001";
+                    var idxStr = await _httpClient.GetStringAsync(indexUrl);
+                    var idxObj = JObject.Parse(idxStr);
+                    var idxDiff = idxObj["data"]?["diff"] as JArray;
+                    if (idxDiff != null)
+                    {
+                        double exactTotalAmount = 0;
+                        foreach (var idx in idxDiff)
+                        {
+                            if (double.TryParse(idx["f6"]?.ToString(), out var amt))
+                            {
+                                exactTotalAmount += amt;
+                            }
+                        }
+                        overview.TotalAmount = exactTotalAmount / 100000000.0;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Fetch index volume failed: {ex.Message}");
+                    overview.TotalAmount = totalAmount / 100000000.0; // fallback
                 }
 
                 // B. 获取板块排行
