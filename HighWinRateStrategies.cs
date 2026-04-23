@@ -181,10 +181,10 @@ namespace StockTracker
             else if (ctx.TurnoverRate >= 12 && ctx.TurnoverRate < 20) score += 5;
             else if (ctx.TurnoverRate >= 20) score -= 10; // 过热
 
-            // 3. 主力情绪 (30分)
-            if (ctx.MainForceNetInflow > 500) score += 20;
+            // 3. 主力情绪 (30分) - f62 单位为元
+            if (ctx.MainForceNetInflow > 10000000) score += 20;      // > 1000万
             else if (ctx.MainForceNetInflow > 0) score += 10;
-            else if (ctx.MainForceNetInflow < -500) score -= 20;
+            else if (ctx.MainForceNetInflow < -10000000) score -= 20; // < -1000万
 
             return Math.Max(0, Math.Min(100, score));
         }

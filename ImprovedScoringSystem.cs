@@ -287,13 +287,13 @@ namespace StockTracker
         {
             double score = 0;
 
-            // 1. 主力资金动向 (50分) - 提高权重
-            if (ctx.MainForceNetInflow > 2000) score += 50;
-            else if (ctx.MainForceNetInflow > 1000) score += 40;
-            else if (ctx.MainForceNetInflow > 500) score += 30;
+            // 1. 主力资金动向 (50分) - f62 单位为元
+            if (ctx.MainForceNetInflow > 50000000) score += 50;       // > 5000万
+            else if (ctx.MainForceNetInflow > 20000000) score += 40;  // > 2000万
+            else if (ctx.MainForceNetInflow > 5000000) score += 30;   // > 500万
             else if (ctx.MainForceNetInflow > 0) score += 15;
-            else if (ctx.MainForceNetInflow > -500) score += 0;
-            else score -= 30; // 大幅流出
+            else if (ctx.MainForceNetInflow > -5000000) score += 0;   // > -500万
+            else score -= 30; // 大幅流出 (< -500万)
 
             // 2. 筹码结构 (30分)
             if (ctx.ProfitRatio > 30 && ctx.ProfitRatio < 70) score += 20; // 健康获利盘
@@ -367,9 +367,9 @@ namespace StockTracker
             if (ctx.ProfitRatio > 85) score -= 25; // 获利盘过多
             if (ctx.ProfitRatio > 90) score -= 15; // 极度获利
 
-            // 资金风险
-            if (ctx.MainForceNetInflow < -1000) score -= 30; // 主力大幅流出
-            if (ctx.MainForceNetInflow < -2000) score -= 20; // 主力出逃
+            // 资金风险 (f62 单位为元)
+            if (ctx.MainForceNetInflow < -10000000) score -= 30; // 主力大幅流出 (< -1000万)
+            if (ctx.MainForceNetInflow < -30000000) score -= 20; // 主力出逃 (< -3000万)
 
             // 估值风险
             if (ctx.PE > 80) score -= 15; // 极高估值
@@ -477,7 +477,7 @@ namespace StockTracker
             // 个股特殊情况调整
             if (ctx.ProfitRatio > 90) baseProbability *= 0.7; // 获利盘过多
             if (ctx.BiasMA5 > 6) baseProbability *= 0.8; // 乖离过大
-            if (ctx.MainForceNetInflow < -1000) baseProbability *= 0.6; // 主力流出
+            if (ctx.MainForceNetInflow < -10000000) baseProbability *= 0.6; // 主力流出 (< -1000万)
 
             return Math.Max(10, Math.Min(90, baseProbability)); // 限制在10%-90%之间
         }
@@ -582,8 +582,12 @@ namespace StockTracker
             // 积极信号（更精细）
             if (ctx.MA5 > ctx.MA10 && ctx.MA10 > ctx.MA20)
                 score.PositiveSignals.Add("✅ 完整多头排列");
-            if (ctx.MainForceNetInflow > 1000)
-                score.PositiveSignals.Add($"✅ 强势主力流入{(ctx.MainForceNetInflow / 10000.0):F2}万");
+            if (ctx.MainForceNetInflow > 10000000) // > 1000万
+            {
+                double flowWan = ctx.MainForceNetInflow / 10000.0;
+                string flowDisplay = flowWan >= 10000 ? $"{flowWan / 10000:F2}亿" : $"{flowWan:F0}万";
+                score.PositiveSignals.Add($"✅ 强势主力流入{flowDisplay}");
+            }
             if (ctx.ROE > 20)
                 score.PositiveSignals.Add($"✅ 优秀ROE({ctx.ROE:F2}%)");
             if (ctx.TurnoverRate > 5 && ctx.TurnoverRate < 15)
@@ -596,7 +600,12 @@ namespace StockTracker
             if (ctx.VolumeRatio > 3.0 && ctx.PriceChangeRatio < 2.0)
                 score.RiskSignals.Add("⚠️ 放量滞涨风险");
             if (ctx.ProfitRatio > 85) score.RiskSignals.Add("⚠️ 获利盘过多");
-            if (ctx.MainForceNetInflow < -800) score.RiskSignals.Add($"⚠️ 主力流出{(Math.Abs(ctx.MainForceNetInflow) / 10000.0):F2}万");
+            if (ctx.MainForceNetInflow < -5000000) // < -500万
+            {
+                double outWan = Math.Abs(ctx.MainForceNetInflow) / 10000.0;
+                string outDisplay = outWan >= 10000 ? $"{outWan / 10000:F2}亿" : $"{outWan:F0}万";
+                score.RiskSignals.Add($"⚠️ 主力流出{outDisplay}");
+            }
             if (ctx.TurnoverRate > 25) score.RiskSignals.Add("⚠️ 换手率过热");
             if (ctx.PE > 60) score.RiskSignals.Add("⚠️ 估值偏高");
         }

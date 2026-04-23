@@ -22,6 +22,8 @@ namespace StockTracker
             sb.AppendLine("# 🎯 顶级量化交易分析师");
             sb.AppendLine("你是一位基于多维度量化模型的顶级A股分析师，专注于提供高胜率、低风险的交易建议。");
 
+            sb.AppendLine($"\n> 数据采集时间: {DateTime.Now:yyyy-MM-dd HH:mm}，以下所有行情与指标均为实时数据，请据实分析。");
+
             sb.AppendLine("\n## 📋 核心分析原则");
             sb.AppendLine("1. **全面分析**: 对每一只提供的自选股进行深度诊断，评分仅作为参考逻辑。");
             sb.AppendLine("2. **风险控制**: 任何风险信号都应谨慎对待，宁缺毋滥");
@@ -97,7 +99,6 @@ namespace StockTracker
             sb.AppendLine("\n### 📊 每只股票的分析格式");
             sb.AppendLine("请对以下所有自选股按统一格式输出深度诊断:");
             sb.AppendLine("");
-            sb.AppendLine("```");
             sb.AppendLine("## 🎯 [股票名称] ([代码]) - [评分建议]");
             sb.AppendLine("");
             sb.AppendLine("### 📈 核心数据");
@@ -125,7 +126,6 @@ namespace StockTracker
             sb.AppendLine("**基本面**: [1句话总结估值与盈利能力]");
             sb.AppendLine("");
             sb.AppendLine("**综合判断**: [1句话给出明确的操作建议和理由]");
-            sb.AppendLine("```");
             sb.AppendLine("");
             sb.AppendLine("---");
 
@@ -143,8 +143,8 @@ namespace StockTracker
                 MarketCondition.Strong => "强势状态，可积极关注顺势上攻的个股",
                 _ => "不稳定状态"
             }));
-            sb.AppendLine("5. **量化客观**: 基于客观数据分析，不要被市场情绪影响");
-            sb.AppendLine("6. **知无不言**: 即使数据有缺失或评分较低，也要基于现有信息给出最专业的诊断建议。");
+            sb.AppendLine("6. **量化客观**: 基于客观数据分析，不要被市场情绪影响");
+            sb.AppendLine("7. **知无不言**: 即使数据有缺失或评分较低，也要基于现有信息给出最专业的诊断建议。");
 
             return sb.ToString();
         }
@@ -233,7 +233,12 @@ namespace StockTracker
 
                 sb.AppendLine("**🌊 资金面**:");
                 string flowEmoji = ctx.MainForceNetInflow >= 0 ? "🟢" : "🔴";
-                sb.AppendLine($"- {flowEmoji} 主力:{ctx.MainForceNetInflow/10000:+0.00;-0.00}万 " +
+                // 智能单位：>=1亿显示亿，否则显示万
+                double absFlow = Math.Abs(ctx.MainForceNetInflow);
+                string flowStr = absFlow >= 100000000
+                    ? $"{ctx.MainForceNetInflow / 100000000.0:+0.00;-0.00}亿"
+                    : $"{ctx.MainForceNetInflow / 10000.0:+0.00;-0.00}万";
+                sb.AppendLine($"- {flowEmoji} 主力净流入:{flowStr} " +
                              $"换手:{ctx.TurnoverRate:F1}%");
                 sb.AppendLine($"- 筹码:成本{ctx.ChipAvgCost:F2}元 获利盘{ctx.ProfitRatio:F1}% " +
                              $"集中度{ctx.ChipConcentration90:F1}%");

@@ -462,7 +462,7 @@ namespace StockTracker
             try
             {
                 string market = GetEastMoneyMarketPrefix(code);
-                string url = $"http://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f62";
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f62";
                 
                 using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
                 var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
@@ -519,7 +519,7 @@ namespace StockTracker
                  try
                  {
                      string market = GetEastMoneyMarketPrefix(code);
-                     string fallbackUrl = $"http://push2.eastmoney.com/api/qt/stock/get?secid={market}.{code}&fields=f173";
+                     string fallbackUrl = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f173";
                      var fbStr = await _httpClient.GetStringAsync(fallbackUrl);
                      var fbObj = JObject.Parse(fbStr);
                      
@@ -622,6 +622,7 @@ namespace StockTracker
                 RotateUserAgent();
                 // A. 获取全市场股票以计算涨跌分布 (同步 A 股逻辑)
                 // 仅获取关键字段: f3(涨跌幅), f12(代码), f14(名称), f17(昨收), f2(现价), f6(成交额)
+                // fltt=2 参数可能会导致 clist/get 接口 502 报错或连接重置，暂时回滚此参数
                 string url = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fields=f2,f3,f12,f14,f17,f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23";
                 var jsonStr = await _httpClient.GetStringAsync(url);
                 var jsonObj = JObject.Parse(jsonStr);
@@ -632,10 +633,16 @@ namespace StockTracker
                 {
                     foreach (var item in diff)
                     {
-                        if (!double.TryParse(item["f3"]?.ToString(), out var pct)) continue;
+                        if (!double.TryParse(item["f3"]?.ToString(), out var rawPct)) continue;
                         if (!double.TryParse(item["f2"]?.ToString(), out var current)) continue;
                         if (!double.TryParse(item["f17"]?.ToString(), out var preClose)) continue;
                         if (!double.TryParse(item["f6"]?.ToString(), out var amount)) continue;
+                        
+                        double pct = rawPct / 100.0; // 东财不加 fltt=2 时，f3 是放大100倍的值
+                        
+                        // 过滤停牌、退市股票（无现价或无成交）
+                        if (current <= 0 || amount <= 0) continue;
+                        
                         string code = item["f12"]?.ToString() ?? "";
                         string name = item["f14"]?.ToString() ?? "";
 
@@ -693,7 +700,7 @@ namespace StockTracker
                     var allSectors = sectorDiff.Select(s => new SectorRanking 
                     { 
                         Name = s["f14"]?.ToString() ?? "", 
-                        ChangePct = double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0 
+                        ChangePct = (double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0) / 100.0 // f3放大100倍
                     }).ToList();
 
                     overview.TopSectors = allSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
