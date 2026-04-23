@@ -316,4 +316,4 @@ A: 项目完全开源，欢迎提交 Issue 或 Pull Request。
 
 ![Star History Chart](https://api.star-history.com/svg?repos=Joker-smile/StockTracker&type=Date)
 
-### Current Version: v1.1.8
+### Current Version: v1.1.9

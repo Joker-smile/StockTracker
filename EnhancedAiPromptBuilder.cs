@@ -118,11 +118,11 @@ namespace StockTracker
             sb.AppendLine("- [列出2-3个最重要的风险信号，每个风险要具体且可量化]");
             sb.AppendLine("");
             sb.AppendLine("### 📊 分析依据");
-            sb.AppendLine("**技术面**: [1-2句话总结技术分析，重点说明趋势和支撑阻力]");
+            sb.AppendLine("**技术面**: [1句话总结技术图形，指出核心支撑与阻力位]");
             sb.AppendLine("");
-            sb.AppendLine("**基本面**: [1-2句话总结基本面分析，重点说明估值和盈利能力]");
+            sb.AppendLine("**量价与资金**: [1句话总结量价关系和资金面，明确是否存在量价背离、放量突破或缩量企稳]");
             sb.AppendLine("");
-            sb.AppendLine("**资金面**: [1-2句话总结资金流向分析，重点说明主力动向和筹码结构]");
+            sb.AppendLine("**基本面**: [1句话总结估值与盈利能力]");
             sb.AppendLine("");
             sb.AppendLine("**综合判断**: [1句话给出明确的操作建议和理由]");
             sb.AppendLine("```");
@@ -197,7 +197,8 @@ namespace StockTracker
 
                 sb.AppendLine("**📈 实时行情**:");
                 sb.AppendLine($"- 现价:{ctx.CurrentPrice:F2}元 (涨跌{ctx.PctChange:+0.00;-0.00}%) " +
-                             $"量比:{ctx.VolumeRatio:F2} 换手:{ctx.TurnoverRate:F2}%");
+                             $"今日量比:{ctx.VolumeRatio:F2} 换手:{ctx.TurnoverRate:F2}%");
+                sb.AppendLine($"- 异动特征: 较昨日放量={ctx.VolumeChangeRatio:F2}倍 价格波动={ctx.PriceChangeRatio:+0.00;-0.00}%");
                 sb.AppendLine($"- 均线:MA5={ctx.MA5:F2} MA10={ctx.MA10:F2} MA20={ctx.MA20:F2}");
                 sb.AppendLine($"- 乖离率:MA5={ctx.BiasMA5:+0.00;-0.00}% MA10={ctx.BiasMA10:+0.00;-0.00}% " +
                              $"形态:{ctx.MAAlignment}");
@@ -404,37 +405,29 @@ namespace StockTracker
             }
             else
             {
-                sb.AppendLine("- 短期策略：结合技术面（MA5/10、MACD、KDJ）和资金面（主力流入、换手率）分析");
-                sb.AppendLine("- 中期策略：结合技术形态、筹码分布及波段支撑阻力位（Support/Resistance）");
-                sb.AppendLine("- 长期策略：侧重基本面（PE、PB、ROE、现金流）及行业地位");
-                sb.AppendLine("- **必须包含明确的价格锚点**，请直接参考并引用[量化交易计划]中的 ATR 动态止损价和阶梯止盈目标价，不要自行生硬计算。");
-                sb.AppendLine("- **结合择时**：结合[择时建议]，明确当前是否处于良好买点。 暂无显著宏观变动。");
+                sb.AppendLine("- 暂无显著宏观变动。");
             }
 
             sb.AppendLine("\n---");
 
             sb.AppendLine("\n## 📝 输出要求 (复盘报告格式)");
-            sb.AppendLine("请严格按以下格式输出 A 股大盘复盘报告：");
+            sb.AppendLine("请严格按以下精简格式输出，杜绝废话：");
             sb.AppendLine("");
-            sb.AppendLine("## 🏛️ [日期] A 股大盘 AI 复盘诊断");
+            sb.AppendLine("## 🏛️ [日期] A 股大盘极简复盘");
             sb.AppendLine("");
-            sb.AppendLine("### 1. 市场总结 (Market Summary)");
-            sb.AppendLine("（2-3句话概括今日市场情绪、指数特征及流动性变化）");
+            sb.AppendLine("### 1. 核心定调 (Market Summary)");
+            sb.AppendLine("（1句话总结今日市场真实情绪与环境：冰点/震荡/主升）");
             sb.AppendLine("");
-            sb.AppendLine("### 2. 指数点评 (Index Tactics)");
-            sb.AppendLine("（分析上证、深成、创业板的趋势关系，是否存在背离或协同）");
+            sb.AppendLine("### 2. 量价与情绪 (Volume & Emotion)");
+            sb.AppendLine("（结合涨跌分布、涨跌停和成交量，判断做多动能和资金承接力，是否有量价背离）");
             sb.AppendLine("");
-            sb.AppendLine("### 3. 板块动态 (Sector Rotation)");
-            sb.AppendLine("（分析领涨板块背后的逻辑及其持续性，评估领跌板块的风险压力）");
+            sb.AppendLine("### 3. 主线脉络 (Sector Focus)");
+            sb.AppendLine("（点出当前核心主线和轮动节奏，警惕退潮板块，不超2句话）");
             sb.AppendLine("");
-            sb.AppendLine("### 4. 后市展望 (Outlook)");
-            sb.AppendLine("（结合当前数据与新闻，对后续 1-3 个交易日的走势进行预判）");
-            sb.AppendLine("");
-            sb.AppendLine("### 5. 策略建议 (Strategy Plan)");
-            sb.AppendLine("- **市场定性**: [进攻/均衡/防御/休息]");
-            sb.AppendLine("- **仓位指引**: [建议百分比]");
-            sb.AppendLine("- **关注重点**: [具体的行业或技术特征]");
-            sb.AppendLine("- **风险对冲**: [具体的防御思路]");
+            sb.AppendLine("### 4. 明日推演与策略 (Outlook & Strategy)");
+            sb.AppendLine("- **走势预判**: [1句话推演明日走势剧本]");
+            sb.AppendLine("- **仓位指引**: [建议总仓位%及加减仓动作]");
+            sb.AppendLine("- **关注重点**: [重点关注的具体行业、连板梯队或防守方向]");
             sb.AppendLine("");
             sb.AppendLine("---");
             sb.AppendLine("*注：以上分析仅基于量化数据及 AI 推导，不构成投资建议。市场有风险，入市需谨慎。*");
