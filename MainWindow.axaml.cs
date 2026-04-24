@@ -1983,7 +1983,20 @@ public partial class MainWindow : Window
 
             var marketCondition = MarketEnvironmentAnalyzer.AnalyzeMarketCondition(indexDataList);
 
-            // === 第二步：获取股票数据并量化评分 ===
+            // === 第二步：获取市场全景数据及板块排行 ===
+            var allSectors = new List<SectorRanking>();
+            try
+            {
+                var overview = await StockDataProvider.FetchMarketOverviewAsync(_appSettings.TavilyApiKey);
+                if (overview != null)
+                {
+                    allSectors = overview.TopSectors.Concat(overview.BottomSectors)
+                        .GroupBy(s => s.Name).Select(g => g.First()).ToList();
+                }
+            }
+            catch { }
+
+            // === 第三步：获取股票数据并量化评分 ===
             var stockScores = new List<ImprovedWinRateScoring.EnhancedStockScore>();
             var stockDataContexts = new Dictionary<string, StockDeepAnalysisContext>();
             var dataQualityResults = new Dictionary<string, DataQualityValidator.ValidationResult>();
@@ -1998,6 +2011,13 @@ public partial class MainWindow : Window
                 var ctx = await StockDataProvider.FetchDeepDataAsync(code, _appSettings.TavilyApiKey);
                 if (string.IsNullOrEmpty(ctx.Name)) ctx.Name = stockName;
 
+                // 板块联动数据
+                var (sectorName, sectorPct, sectorRank) = await StockDataProvider.FetchStockSectorAsync(code, allSectors);
+                ctx.SectorName = sectorName;
+                ctx.SectorPctChange = sectorPct;
+                ctx.SectorRankPercent = sectorRank;
+                ctx.RelativeStrengthVsSector = ctx.PctChange - sectorPct;
+
                 // 保存数据供后续使用
                 stockDataContexts[code] = ctx;
                 sectors[code] = sector;
@@ -2005,6 +2025,10 @@ public partial class MainWindow : Window
                 // 数据质量验证
                 var quality = DataQualityValidator.ValidateStockData(ctx);
                 dataQualityResults[code] = quality;
+
+                // 多周期共振分析
+                AdvancedTechnicalIndicators.AnalyzeMultiTimeframeResonance(
+                    ctx.TechScore, ctx.TechScore60Min, ctx.TechScore15Min);
 
                 // 使用增强的量化评分系统
                 var score = ImprovedWinRateScoring.CalculateEnhancedScore(ctx, marketCondition);
@@ -2015,10 +2039,10 @@ public partial class MainWindow : Window
                 ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
             }
 
-            // === 第三步：获取回测历史表现数据 ===
+            // === 第四步：获取回测历史表现数据 ===
             var backtestResult = AdviceTracker.CalculateBackTestResults(60); // 最近60天
 
-            // === 第四步：构建完整的深度分析 AI 提示词 ===
+            // === 第五步：构建完整的深度分析 AI 提示词 ===
             string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
                 stockScores, 
                 marketCondition, 

@@ -41,6 +41,7 @@ namespace StockTracker
 
         private static readonly string _trackerFilePath = Path.Combine(AppContext.BaseDirectory, "advice_tracker.json");
         private static readonly string _performanceLogPath = Path.Combine(AppContext.BaseDirectory, "performance_log.json");
+        private static readonly string _bayesianCachePath = Path.Combine(AppContext.BaseDirectory, "bayesian_weights.json");
 
         /// <summary>
         /// 记录AI建议
@@ -412,6 +413,163 @@ namespace StockTracker
             }
 
             return suggestions;
+        }
+
+        // ====================== 贝叶斯反馈闭环 ======================
+
+        /// <summary>
+        /// 贝叶斯权重调整数据结构
+        /// </summary>
+        public class BayesianWeightAdjustments
+        {
+            public double TechnicalMultiplier { get; set; } = 1.0;
+            public double FundamentalMultiplier { get; set; } = 1.0;
+            public double FundFlowMultiplier { get; set; } = 1.0;
+            public double SentimentMultiplier { get; set; } = 1.0;
+            public double TrendMultiplier { get; set; } = 1.0;
+            public DateTime LastUpdated { get; set; } = DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// 获取贝叶斯权重调整
+        /// </summary>
+        public static BayesianWeightAdjustments? GetBayesianWeightAdjustments()
+        {
+            try
+            {
+                if (File.Exists(_bayesianCachePath))
+                {
+                    var json = File.ReadAllText(_bayesianCachePath);
+                    var result = JsonConvert.DeserializeObject<BayesianWeightAdjustments>(json);
+                    // 只使用24小时内的缓存
+                    if (result != null && (DateTime.Now - result.LastUpdated).TotalHours < 24)
+                        return result;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// 更新贝叶斯权重（基于历史胜负，调整各维度权重）
+        /// </summary>
+        private static void UpdateBayesianWeights()
+        {
+            try
+            {
+                var records = LoadRecords();
+                var completedRecords = records.Where(r => r.WasSuccessful.HasValue).ToList();
+                if (completedRecords.Count < 10) return; // 至少10笔交易
+
+                var adjustment = new BayesianWeightAdjustments();
+
+                // 分析成功交易的技术面评分特征
+                var successRecords = completedRecords.Where(r => r.WasSuccessful == true).ToList();
+                var failRecords = completedRecords.Where(r => r.WasSuccessful == false).ToList();
+
+                if (successRecords.Count > 0 && failRecords.Count > 0)
+                {
+                    // 成功交易各维度平均分 vs 失败交易各维度平均分
+                    double successTech = successRecords.Average(r => r.TechnicalScore);
+                    double failTech = failRecords.Average(r => r.TechnicalScore);
+                    double successFund = successRecords.Average(r => r.FundamentalScore);
+                    double failFund = failRecords.Average(r => r.FundamentalScore);
+                    double successFlow = successRecords.Average(r => r.FundFlowScore);
+                    double failFlow = failRecords.Average(r => r.FundFlowScore);
+
+                    // 区分度越大，该维度权重越高
+                    // 基础权重 * 区分度系数
+                    double techDiscrimination = Math.Abs(successTech - failTech);
+                    double fundDiscrimination = Math.Abs(successFund - failFund);
+                    double flowDiscrimination = Math.Abs(successFlow - failFlow);
+
+                    // 归一化区分度并映射到1±0.3
+                    double maxDisc = Math.Max(techDiscrimination, Math.Max(fundDiscrimination, flowDiscrimination));
+                    maxDisc = Math.Max(maxDisc, 1);
+
+                    adjustment.TechnicalMultiplier = 1.0 + (techDiscrimination / maxDisc - 0.33) * 0.6;
+                    adjustment.FundamentalMultiplier = 1.0 + (fundDiscrimination / maxDisc - 0.33) * 0.6;
+                    adjustment.FundFlowMultiplier = 1.0 + (flowDiscrimination / maxDisc - 0.33) * 0.6;
+
+                    // 限制范围
+                    adjustment.TechnicalMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.TechnicalMultiplier));
+                    adjustment.FundamentalMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.FundamentalMultiplier));
+                    adjustment.FundFlowMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.FundFlowMultiplier));
+                }
+
+                adjustment.LastUpdated = DateTime.Now;
+                var json = JsonConvert.SerializeObject(adjustment, Formatting.Indented);
+                File.WriteAllText(_bayesianCachePath, json);
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("Update bayesian weights failed", ex);
+            }
+        }
+
+        /// <summary>
+        /// 获取某只股票的样本量（历史交易次数）
+        /// </summary>
+        public static int GetStockSampleSize(string stockCode)
+        {
+            var records = LoadRecords();
+            return records.Count(r => r.StockCode == stockCode && r.WasSuccessful.HasValue);
+        }
+
+        /// <summary>
+        /// 获取连续亏损次数
+        /// </summary>
+        public static int GetConsecutiveLosses()
+        {
+            var records = LoadRecords();
+            var sortedRecords = records
+                .Where(r => r.WasSuccessful.HasValue)
+                .OrderByDescending(r => r.AdviceDate)
+                .ToList();
+
+            int consecutive = 0;
+            foreach (var record in sortedRecords)
+            {
+                if (record.WasSuccessful == false)
+                    consecutive++;
+                else
+                    break;
+            }
+            return consecutive;
+        }
+
+        /// <summary>
+        /// 按维度分析回测胜率（用于AI Prompt优化）
+        /// </summary>
+        public static string GetDimensionPerformanceAnalysis()
+        {
+            var records = LoadRecords();
+            var completed = records.Where(r => r.WasSuccessful.HasValue).ToList();
+            if (completed.Count < 10) return "";
+
+            var sb = new System.Text.StringBuilder();
+            var successRows = completed.Where(r => r.WasSuccessful == true).ToList();
+            var failRows = completed.Where(r => r.WasSuccessful == false).ToList();
+
+            sb.AppendLine("| 维度 | 成功组均分 | 失败组均分 | 区分度 | 建议权重 |");
+            sb.AppendLine("|------|-----------|-----------|--------|---------|");
+
+            var dims = new[] {
+                ("技术面", (Func<AdviceRecord,double>)(r => r.TechnicalScore)),
+                ("基本面", r => r.FundamentalScore),
+                ("资金面", r => r.FundFlowScore)
+            };
+
+            foreach (var (name, scorer) in dims)
+            {
+                double sAvg = successRows.Average(scorer);
+                double fAvg = failRows.Average(scorer);
+                double disc = Math.Abs(sAvg - fAvg);
+                string weightSuggestion = disc > 10 ? "↑ 提升" : (disc > 5 ? "→ 维持" : "↓ 降低");
+                sb.AppendLine($"| {name} | {sAvg:F1} | {fAvg:F1} | {disc:F1} | {weightSuggestion} |");
+            }
+
+            return sb.ToString();
         }
     }
 

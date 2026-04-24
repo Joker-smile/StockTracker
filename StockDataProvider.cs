@@ -15,7 +15,7 @@ namespace StockTracker
         // 基础标识
         public string Code { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
-        
+
         // 实时行情增强
         public double CurrentPrice { get; set; }
         public double PctChange { get; set; }
@@ -27,16 +27,19 @@ namespace StockTracker
         public double PE { get; set; } // 市盈率
         public double PB { get; set; } // 市净率
         public double TotalMarketValue { get; set; } // 总市值
-        
+
         // 均线与趋势分析 (精准推演)
         public double MA5 { get; set; }
         public double MA10 { get; set; }
         public double MA20 { get; set; }
+        public double MA60 { get; set; } // 新增：MA60
+        public double MA120 { get; set; } // 新增：MA120
         public double BiasMA5 { get; set; }
         public double BiasMA10 { get; set; }
         public double BiasMA20 { get; set; }
+        public double BiasMA60 { get; set; } // 新增：MA60乖离
         public string MAAlignment { get; set; } = string.Empty; // 多头/空头
-        
+
         // 舆情情报 (最新新闻)
         public List<string> LatestNews { get; set; } = new();
 
@@ -44,17 +47,27 @@ namespace StockTracker
         public double ProfitRatio { get; set; } // 获利比例(%)
         public double ChipAvgCost { get; set; } // 平均成本
         public double ChipConcentration90 { get; set; } // 90筹码集中度
+        public double ChipPeakPressure { get; set; } // 新增：筹码峰压力位
+        public double ChipPeakSupport { get; set; } // 新增：筹码峰支撑位
         public double MainForceNetInflow { get; set; } // 主力净流入金额
-        
+
+        // === 新增：主力资金分级 ===
+        public double SuperLargeOrderInflow { get; set; } // 超大单净流入
+        public double LargeOrderInflow { get; set; }       // 大单净流入
+        public double MediumOrderInflow { get; set; }      // 中单净流入
+        public double SmallOrderInflow { get; set; }       // 小单净流入
+        public double MainForceInflowRatio { get; set; }   // 主力净流入占成交额比例(%)
+
         // 财报基础 (价值底座)
         public double ROE { get; set; } // 净资产收益率
         public double OperatingRevenue { get; set; } // 营业总收入(亿)
         public double NetProfit { get; set; } // 归母净利润(亿)
         public double OperatingCashFlowPerShare { get; set; } // 每股经营现金流
-        
+
         // 昨日对比异动
         public double VolumeChangeRatio { get; set; } // 成交量较昨日变化倍数
         public double PriceChangeRatio { get; set; } // 价格较昨日变化
+        public double TurnoverAmount { get; set; } // 新增：成交额
 
         // === 新增：高级量化指标与策略 ===
         public TechnicalAnalysisScore TechScore { get; set; } = new();
@@ -63,6 +76,35 @@ namespace StockTracker
 
         public List<double> RecentPrices { get; set; } = new();
         public List<double> RecentVolumes { get; set; } = new();
+
+        // === 新增：板块联动数据 ===
+        public string SectorName { get; set; } = string.Empty; // 所属板块
+        public double SectorPctChange { get; set; } // 板块涨跌幅
+        public double SectorRankPercent { get; set; } // 个股在板块内排名百分比
+        public double RelativeStrengthVsSector { get; set; } // 相对板块强度
+
+        // === 新增：新闻情绪量化 ===
+        public double NewsSentimentScore { get; set; } // 新闻情绪评分 (0-100, 50为中性)
+        public double NewsImpactScore { get; set; } // 新闻影响力评分 (0-100)
+
+        // === 新增：多时间框架数据 ===
+        public List<double> Prices60Min { get; set; } = new(); // 60分钟级别价格
+        public List<double> Volumes60Min { get; set; } = new(); // 60分钟级别成交量
+        public List<double> Prices15Min { get; set; } = new(); // 15分钟级别价格
+        public List<double> Volumes15Min { get; set; } = new(); // 15分钟级别成交量
+        public TechnicalAnalysisScore TechScore60Min { get; set; } = new(); // 60分钟技术指标
+        public TechnicalAnalysisScore TechScore15Min { get; set; } = new(); // 15分钟技术指标
+
+        // === 新增：波动率锥数据 ===
+        public double Volatility20Day { get; set; } // 20日波动率
+        public double Volatility60Day { get; set; } // 60日波动率
+        public double Volatility120Day { get; set; } // 120日波动率
+        public double VolatilityPercentile { get; set; } // 当前波动率在历史中的分位数
+
+        // === 新增：量价背离标记 ===
+        public bool HasBearishDivergence { get; set; } // 顶背离
+        public bool HasBullishDivergence { get; set; } // 底背离
+        public string DivergenceDetail { get; set; } = string.Empty; // 背离详情
     }
 
     public class MarketOverviewData
@@ -214,11 +256,11 @@ namespace StockTracker
             try
             {
                 string market = GetEastMoneyMarketPrefix(code);
-                // 近 200 个交易日的价量数据以推演均线和筹码分布
-                string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=101&fqt=1&end=20500101&lmt=200&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
+                // 近 250 个交易日的价量数据以推演均线、筹码分布、波动率锥
+                string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=101&fqt=1&end=20500101&lmt=250&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
                 var jsonStr = await _httpClient.GetStringAsync(url);
                 var jsonObj = JObject.Parse(jsonStr);
-                
+
                 var klines = jsonObj["data"]?["klines"] as JArray;
                 if (klines != null && klines.Count > 0)
                 {
@@ -230,11 +272,11 @@ namespace StockTracker
                     foreach (var k in klines)
                     {
                         var parts = k.ToString().Split(','); // "Date,Open,Close,High,Low,Volume"
-                        if (parts.Length >= 6 && 
-                            double.TryParse(parts[1], out var o) && 
-                            double.TryParse(parts[2], out var c) && 
-                            double.TryParse(parts[3], out var h) && 
-                            double.TryParse(parts[4], out var l) && 
+                        if (parts.Length >= 6 &&
+                            double.TryParse(parts[1], out var o) &&
+                            double.TryParse(parts[2], out var c) &&
+                            double.TryParse(parts[3], out var h) &&
+                            double.TryParse(parts[4], out var l) &&
                             double.TryParse(parts[5], out var v))
                         {
                             opens.Add(o);
@@ -249,27 +291,32 @@ namespace StockTracker
                     double currentPrice = closes.Last();
                     if (context.CurrentPrice == 0) context.CurrentPrice = currentPrice;
 
-                    // 计算 MA5
+                    // 计算 MA5/MA10/MA20/MA60/MA120
                     if (closes.Count >= 5)
                         context.MA5 = closes.Skip(closes.Count - 5).Average();
-                    
-                    // 计算 MA10
                     if (closes.Count >= 10)
                         context.MA10 = closes.Skip(closes.Count - 10).Average();
-                    else 
-                        context.MA10 = context.MA5; // 数据不足
-
-                    // 计算 MA20
+                    else
+                        context.MA10 = context.MA5;
                     if (closes.Count >= 20)
                         context.MA20 = closes.Skip(closes.Count - 20).Average();
                     else
-                        context.MA20 = context.MA10; // 数据不足
+                        context.MA20 = context.MA10;
+                    if (closes.Count >= 60)
+                        context.MA60 = closes.Skip(closes.Count - 60).Average();
+                    else if (closes.Count >= 20)
+                        context.MA60 = context.MA20;
+                    if (closes.Count >= 120)
+                        context.MA120 = closes.Skip(closes.Count - 120).Average();
+                    else if (closes.Count >= 60)
+                        context.MA120 = context.MA60;
 
                     context.BiasMA5 = context.MA5 > 0 ? (currentPrice - context.MA5) / context.MA5 * 100 : 0;
                     context.BiasMA10 = context.MA10 > 0 ? (currentPrice - context.MA10) / context.MA10 * 100 : 0;
                     context.BiasMA20 = context.MA20 > 0 ? (currentPrice - context.MA20) / context.MA20 * 100 : 0;
+                    context.BiasMA60 = context.MA60 > 0 ? (currentPrice - context.MA60) / context.MA60 * 100 : 0;
 
-                    // 计算高级技术指标 (MACD, RSI, 布林带, 支撑阻力等)
+                    // 计算高级技术指标 (MACD, RSI, 布林带, 支撑阻力, 背离等)
                     if (closes.Count > 0)
                     {
                         context.TechScore = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(closes, volumes, highs, lows);
@@ -277,14 +324,18 @@ namespace StockTracker
                         context.RecentVolumes = volumes;
                     }
 
-                    // 简单判断均线排列
-                    if (context.MA5 > context.MA10 && context.MA10 > context.MA20)
+                    // 均线排列判断（含 MA60/MA120）
+                    if (context.MA5 > context.MA10 && context.MA10 > context.MA20 && context.MA20 > context.MA60)
+                        context.MAAlignment = "强势多头排列";
+                    else if (context.MA5 > context.MA10 && context.MA10 > context.MA20)
                         context.MAAlignment = "多头排列";
+                    else if (context.MA5 < context.MA10 && context.MA10 < context.MA20 && context.MA20 < context.MA60)
+                        context.MAAlignment = "强势空头排列";
                     else if (context.MA5 < context.MA10 && context.MA10 < context.MA20)
                         context.MAAlignment = "空头排列";
                     else
                         context.MAAlignment = "震荡交织";
-                        
+
                     // ======= 昨日量价异动追踪 =======
                     if (closes.Count >= 2 && volumes.Count >= 2)
                     {
@@ -292,34 +343,33 @@ namespace StockTracker
                         double yesterdayVol = volumes[volumes.Count - 2];
                         if (yesterdayVol > 0)
                             context.VolumeChangeRatio = todayVol / yesterdayVol;
-                            
+
                         double todayPrice = closes.Last();
                         double yesterdayPrice = closes[closes.Count - 2];
                         if (yesterdayPrice > 0)
                             context.PriceChangeRatio = (todayPrice - yesterdayPrice) / yesterdayPrice * 100.0;
                     }
-                        
-                    // ======= C# 仿真筹码分布 (CYQ) 计算 =======
+
+                    // ======= C# 仿真筹码分布 (CYQ) 计算 (增强版) =======
                     if (closes.Count > 0 && volumes.Count > 0 && closes.Count == volumes.Count)
                     {
                         double totalVol = volumes.Sum();
                         if (totalVol > 0)
                         {
-                            // 获利盘比例: 收盘价 <= 当前价的累计成交量占比
                             double profitVol = 0;
                             double costProduct = 0;
                             var distribution = new List<(double Price, double Vol)>();
-                            
+
                             for (int i = 0; i < closes.Count; i++)
                             {
                                 if (closes[i] <= currentPrice) profitVol += volumes[i];
                                 costProduct += closes[i] * volumes[i];
                                 distribution.Add((closes[i], volumes[i]));
                             }
-                            
+
                             context.ProfitRatio = profitVol / totalVol * 100.0;
                             context.ChipAvgCost = costProduct / totalVol;
-                            
+
                             // 90% 集中度
                             distribution = distribution.OrderBy(d => d.Price).ToList();
                             double sumV = 0;
@@ -332,10 +382,147 @@ namespace StockTracker
                                 if (!foundP5 && ratio >= 0.05) { p5 = d.Price; foundP5 = true; }
                                 if (!foundP95 && ratio >= 0.95) { p95 = d.Price; foundP95 = true; }
                             }
-                            
+
                             if (p95 + p5 > 0)
                                 context.ChipConcentration90 = (p95 - p5) / (p95 + p5) * 100.0;
+
+                            // === 筹码峰压力位/支撑位分析 ===
+                            // 找到当前价上方最近的筹码密集峰（压力位）
+                            var aboveDistribution = distribution.Where(d => d.Price > currentPrice).ToList();
+                            if (aboveDistribution.Count > 0)
+                            {
+                                var maxVolAbove = aboveDistribution.OrderByDescending(d => d.Vol).First();
+                                context.ChipPeakPressure = maxVolAbove.Price;
+                            }
+                            else
+                            {
+                                context.ChipPeakPressure = currentPrice * 1.1; // 默认上方10%
+                            }
+
+                            // 找到当前价下方最近的筹码密集峰（支撑位）
+                            var belowDistribution = distribution.Where(d => d.Price < currentPrice).ToList();
+                            if (belowDistribution.Count > 0)
+                            {
+                                var maxVolBelow = belowDistribution.OrderByDescending(d => d.Vol).First();
+                                context.ChipPeakSupport = maxVolBelow.Price;
+                            }
+                            else
+                            {
+                                context.ChipPeakSupport = currentPrice * 0.9; // 默认下方10%
+                            }
                         }
+                    }
+
+                    // === 波动率锥计算 ===
+                    if (closes.Count >= 20)
+                    {
+                        context.Volatility20Day = AdvancedTechnicalIndicators.CalculateVolatility(
+                            closes.TakeLast(20).ToList());
+                    }
+                    if (closes.Count >= 60)
+                    {
+                        context.Volatility60Day = AdvancedTechnicalIndicators.CalculateVolatility(
+                            closes.TakeLast(60).ToList());
+                    }
+                    if (closes.Count >= 120)
+                    {
+                        context.Volatility120Day = AdvancedTechnicalIndicators.CalculateVolatility(
+                            closes.TakeLast(120).ToList());
+                    }
+                    // 波动率分位数（当前20日波动率在全部滚动20日波动率中的分位）
+                    if (closes.Count >= 40)
+                    {
+                        var rollingVols = new List<double>();
+                        for (int i = 20; i < closes.Count; i++)
+                        {
+                            var slice = closes.Skip(i - 20).Take(20).ToList();
+                            rollingVols.Add(AdvancedTechnicalIndicators.CalculateVolatility(slice));
+                        }
+                        if (rollingVols.Count > 0 && context.Volatility20Day > 0)
+                        {
+                            rollingVols.Sort();
+                            int rank = rollingVols.BinarySearch(context.Volatility20Day);
+                            if (rank < 0) rank = ~rank;
+                            context.VolatilityPercentile = (double)rank / rollingVols.Count * 100;
+                        }
+                    }
+
+                    // === 多时间框架数据获取 (60分钟和15分钟) ===
+                    try
+                    {
+                        // 60分钟K线
+                        string url60min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=60&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
+                        var resp60 = await _httpClient.GetStringAsync(url60min);
+                        var obj60 = JObject.Parse(resp60);
+                        var klines60 = obj60["data"]?["klines"] as JArray;
+                        if (klines60 != null && klines60.Count > 0)
+                        {
+                            var closes60 = new List<double>();
+                            var highs60 = new List<double>();
+                            var lows60 = new List<double>();
+                            var vols60 = new List<double>();
+                            foreach (var k in klines60)
+                            {
+                                var parts = k.ToString().Split(',');
+                                if (parts.Length >= 6 &&
+                                    double.TryParse(parts[2], out var c60) &&
+                                    double.TryParse(parts[3], out var h60) &&
+                                    double.TryParse(parts[4], out var l60) &&
+                                    double.TryParse(parts[5], out var v60))
+                                {
+                                    closes60.Add(c60);
+                                    highs60.Add(h60);
+                                    lows60.Add(l60);
+                                    vols60.Add(v60);
+                                }
+                            }
+                            context.Prices60Min = closes60;
+                            context.Volumes60Min = vols60;
+                            if (closes60.Count >= 20)
+                            {
+                                context.TechScore60Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
+                                    closes60, vols60, highs60, lows60);
+                            }
+                        }
+
+                        // 15分钟K线
+                        string url15min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=15&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
+                        var resp15 = await _httpClient.GetStringAsync(url15min);
+                        var obj15 = JObject.Parse(resp15);
+                        var klines15 = obj15["data"]?["klines"] as JArray;
+                        if (klines15 != null && klines15.Count > 0)
+                        {
+                            var closes15 = new List<double>();
+                            var highs15 = new List<double>();
+                            var lows15 = new List<double>();
+                            var vols15 = new List<double>();
+                            foreach (var k in klines15)
+                            {
+                                var parts = k.ToString().Split(',');
+                                if (parts.Length >= 6 &&
+                                    double.TryParse(parts[2], out var c15) &&
+                                    double.TryParse(parts[3], out var h15) &&
+                                    double.TryParse(parts[4], out var l15) &&
+                                    double.TryParse(parts[5], out var v15))
+                                {
+                                    closes15.Add(c15);
+                                    highs15.Add(h15);
+                                    lows15.Add(l15);
+                                    vols15.Add(v15);
+                                }
+                            }
+                            context.Prices15Min = closes15;
+                            context.Volumes15Min = vols15;
+                            if (closes15.Count >= 20)
+                            {
+                                context.TechScore15Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
+                                    closes15, vols15, highs15, lows15);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Multi-timeframe data fetch failed: {ex.Message}");
                     }
                 }
             }
@@ -345,7 +532,7 @@ namespace StockTracker
             }
         }
 
-        // 3. 获取新闻舆情 (优先 Tavily 高级检索，降级新浪免签引擎)
+        // 3. 获取新闻舆情 (优先 Tavily 高级检索，降级新浪免签引擎，含情绪评分)
         private static async Task FetchTavilyNewsAsync(string code, StockDeepAnalysisContext context, string tavilyApiKey)
         {
             if (string.IsNullOrWhiteSpace(tavilyApiKey))
@@ -366,7 +553,7 @@ namespace StockTracker
                     search_depth = "basic",
                     max_results = 5
                 };
-                
+
                 string jsonPayload = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
                 var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
@@ -384,17 +571,19 @@ namespace StockTracker
                 var jsonObj = JObject.Parse(jsonStr);
 
                 var newsList = new List<string>();
+                var allNewsText = new List<string>();
                 var results = jsonObj["results"] as JArray;
                 if (results != null)
                 {
                     foreach (var result in results)
                     {
                         var title = result["title"]?.ToString();
-                        var desc = result["content"]?.ToString(); 
+                        var desc = result["content"]?.ToString();
                         if (!string.IsNullOrEmpty(title))
                         {
                             string snippet = desc != null && desc.Length > 80 ? desc.Substring(0, 80) + "..." : (desc ?? "");
                             newsList.Add($"- {title}: {snippet}");
+                            allNewsText.Add(title + " " + (desc ?? ""));
                         }
                     }
                 }
@@ -406,6 +595,8 @@ namespace StockTracker
                 else
                 {
                     context.LatestNews = newsList;
+                    // 新闻情绪量化评分
+                    AnalyzeNewsSentiment(context, allNewsText);
                 }
             }
             catch (Exception ex)
@@ -426,29 +617,30 @@ namespace StockTracker
                 var html = await _httpClient.GetStringAsync(url);
 
                 var newsList = new List<string>();
-                
-                // Regex 提取 <div class="datelist"> 里的新闻链接 
-                // 示例: <a href="http://finance.sina..." target="_blank">东方财富第一季度净利...</a>
+                var allNewsText = new List<string>();
+
+                // Regex 提取 <div class="datelist"> 里的新闻链接
                 var match = Regex.Match(html, @"<div\s+class=""datelist"">(.*?)</div>", RegexOptions.Singleline);
                 if (match.Success)
                 {
                     string content = match.Groups[1].Value;
-                    // 拉取前 5 条 A 标签
                     var linkMatches = Regex.Matches(content, @"<a\s+href=""[^""]+""[^>]*>(.*?)</a>");
                     int maxNews = 5;
                     foreach (Match m in linkMatches)
                     {
                         var title = m.Groups[1].Value.Trim();
-                        // 过滤太短或者是无意义的
                         if (title.Length > 5 && !title.Contains("关于") && !title.Contains("公告"))
                         {
                             newsList.Add($"- {title}");
+                            allNewsText.Add(title);
                         }
                         if (newsList.Count >= maxNews) break;
                     }
                 }
-                
+
                 context.LatestNews = newsList;
+                // 新闻情绪量化评分
+                AnalyzeNewsSentiment(context, allNewsText);
             }
             catch (Exception ex)
             {
@@ -456,14 +648,78 @@ namespace StockTracker
             }
         }
 
-        // 4. 获取主力资金流向
+        /// <summary>
+        /// 新闻情绪量化评分（基于关键词加权）
+        /// </summary>
+        private static void AnalyzeNewsSentiment(StockDeepAnalysisContext context, List<string> newsTexts)
+        {
+            if (newsTexts == null || newsTexts.Count == 0)
+            {
+                context.NewsSentimentScore = 50;
+                context.NewsImpactScore = 30;
+                return;
+            }
+
+            // 正面关键词及权重
+            var positiveWords = new Dictionary<string, double>
+            {
+                { "涨停", 15 }, { "利好", 12 }, { "突破", 10 }, { "大增", 10 }, { "增长", 8 },
+                { "上涨", 7 }, { "预增", 12 }, { "签订", 8 }, { "中标", 10 }, { "扭亏", 15 },
+                { "分拆上市", 12 }, { "高送转", 10 }, { "回购", 8 }, { "增持", 10 }, { "业绩", 5 },
+                { "创新高", 12 }, { "涨停板", 15 }, { "机构买入", 12 }, { "北向资金加仓", 12 },
+                { "底部反弹", 8 }, { "筑底", 6 }, { "反转", 8 }, { "放量", 6 }, { "加速", 5 }
+            };
+
+            // 负面关键词及权重
+            var negativeWords = new Dictionary<string, double>
+            {
+                { "跌停", 15 }, { "利空", 12 }, { "下跌", 7 }, { "减持", 12 }, { "亏损", 12 },
+                { "风险", 8 }, { "退市", 20 }, { "调查", 15 }, { "处罚", 12 }, { "爆雷", 18 },
+                { "诉讼", 10 }, { "业绩下滑", 10 }, { "终止", 8 }, { "暂停上市", 18 }, { "ST", 15 },
+                { "连续跌停", 18 }, { "大幅回调", 6 }, { "破位", 10 }, { "机构出逃", 14 },
+                { "北向资金减仓", 12 }, { "高位", 4 }, { "泡沫", 8 }
+            };
+
+            double sentimentScore = 50; // 中性基准
+            double totalWeight = 0;
+            int keywordCount = 0;
+
+            foreach (var text in newsTexts)
+            {
+                foreach (var kvp in positiveWords)
+                {
+                    if (text.Contains(kvp.Key))
+                    {
+                        sentimentScore += kvp.Value;
+                        totalWeight += kvp.Value;
+                        keywordCount++;
+                    }
+                }
+                foreach (var kvp in negativeWords)
+                {
+                    if (text.Contains(kvp.Key))
+                    {
+                        sentimentScore -= kvp.Value;
+                        totalWeight += kvp.Value;
+                        keywordCount++;
+                    }
+                }
+            }
+
+            context.NewsSentimentScore = Math.Max(0, Math.Min(100, sentimentScore));
+            // 影响力评分：基于关键词命中数量和权重
+            context.NewsImpactScore = Math.Max(0, Math.Min(100, keywordCount * 8 + totalWeight));
+        }
+
+        // 4. 获取主力资金流向（含超大/大/中/小单分级）
         private static async Task FetchMainForceFlowAsync(string code, StockDeepAnalysisContext context)
         {
             try
             {
                 string market = GetEastMoneyMarketPrefix(code);
-                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f62";
-                
+                // f62=主力净流入, f64=超大单净流入, f70=大单净流入, f72=中单净流入, f74=小单净流入, f66=成交额
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f62,f64,f66,f70,f72,f74";
+
                 using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
                 var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
                 var jsonObj = JObject.Parse(jsonStr);
@@ -471,9 +727,21 @@ namespace StockTracker
                 if (data != null && data.Type != JTokenType.Null)
                 {
                     if (double.TryParse(data["f62"]?.ToString(), out double inflow))
-                    {
                         context.MainForceNetInflow = inflow;
-                    }
+                    if (double.TryParse(data["f64"]?.ToString(), out double superLarge))
+                        context.SuperLargeOrderInflow = superLarge;
+                    if (double.TryParse(data["f70"]?.ToString(), out double large))
+                        context.LargeOrderInflow = large;
+                    if (double.TryParse(data["f72"]?.ToString(), out double medium))
+                        context.MediumOrderInflow = medium;
+                    if (double.TryParse(data["f74"]?.ToString(), out double small))
+                        context.SmallOrderInflow = small;
+                    if (double.TryParse(data["f66"]?.ToString(), out double amount))
+                        context.TurnoverAmount = amount;
+
+                    // 计算主力净流入占成交额比例
+                    if (context.TurnoverAmount > 0)
+                        context.MainForceInflowRatio = context.MainForceNetInflow / context.TurnoverAmount * 100;
                 }
             }
             catch (Exception ex)
@@ -737,6 +1005,61 @@ namespace StockTracker
             }
 
             return overview;
+        }
+
+        /// <summary>
+        /// 获取个股所属板块涨跌幅数据（用于板块联动分析）
+        /// </summary>
+        public static async Task<(string SectorName, double SectorPctChange, double SectorRankPercent)> FetchStockSectorAsync(string code, List<SectorRanking>? allSectors = null)
+        {
+            try
+            {
+                // 尝试从EastMoney获取个股板块信息
+                string market = GetEastMoneyMarketPrefix(code);
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f100,f102,f104";
+
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
+                var jsonObj = JObject.Parse(jsonStr);
+                var data = jsonObj["data"];
+
+                string sectorName = "";
+                if (data != null && data.Type != JTokenType.Null)
+                {
+                    sectorName = data["f100"]?.ToString() ?? "";
+                }
+
+                // 从已获取的板块排行中匹配
+                if (allSectors != null && !string.IsNullOrEmpty(sectorName))
+                {
+                    // 模糊匹配板块名称
+                    var matched = allSectors.FirstOrDefault(s =>
+                        sectorName.Contains(s.Name) || s.Name.Contains(sectorName));
+                    if (matched != null)
+                    {
+                        double sectorPct = matched.ChangePct;
+                        // 估算排名百分比（按涨跌幅排）
+                        var sortedList = allSectors.OrderByDescending(s => s.ChangePct).ToList();
+                        int rank = sortedList.FindIndex(s => s.Name == matched.Name) + 1;
+                        double rankPct = sortedList.Count > 0 ? (double)rank / sortedList.Count * 100 : 50;
+
+                        return (sectorName, sectorPct, rankPct);
+                    }
+                    else
+                    {
+                        // 将全部板块列表的中位数作为默认板块表现
+                        double medianPct = allSectors.OrderBy(s => s.ChangePct).ElementAt(allSectors.Count / 2).ChangePct;
+                        return (sectorName, medianPct, 50);
+                    }
+                }
+
+                return (sectorName, 0, 50);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"FetchStockSectorAsync failed for {code}: {ex.Message}");
+                return ("", 0, 50);
+            }
         }
     }
 }

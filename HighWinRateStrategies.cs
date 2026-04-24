@@ -64,7 +64,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 计算精准择时评分
+        /// 计算精准择时评分（增强版：含背离调整 + 板块联动）
         /// </summary>
         public static TimingScore CalculateTimingScore(
             StockDeepAnalysisContext ctx,
@@ -91,6 +91,29 @@ namespace StockTracker
                 score.VolumePriceScore * 0.30 +
                 score.EmotionScore * 0.25 +
                 score.EventScore * 0.20;
+
+            // === 背离调整（高权重） ===
+            if (ctx.TechScore != null)
+            {
+                if (ctx.TechScore.HasBearishDivergence)
+                    score.OverallTimingScore *= 0.6; // 顶背离扣40%
+                if (ctx.TechScore.HasBullishDivergence)
+                    score.OverallTimingScore *= 1.25; // 底背离加25%
+                if (ctx.TechScore.HasVolumePriceDivergence)
+                    score.OverallTimingScore *= 0.75; // 量价背离扣25%
+            }
+
+            // 板块联动调整
+            if (ctx.SectorPctChange < -2)
+                score.OverallTimingScore *= 0.85; // 板块走弱
+            if (ctx.RelativeStrengthVsSector > 2)
+                score.OverallTimingScore *= 1.1; // 强势领涨
+
+            // 波动率调整
+            if (ctx.VolatilityPercentile > 85)
+                score.OverallTimingScore *= 0.85; // 极高波动降低择时可信度
+
+            score.OverallTimingScore = Math.Max(0, Math.Min(100, score.OverallTimingScore));
 
             // 生成择时建议
             GenerateTimingAdvice(score, ctx);
@@ -265,7 +288,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 计算智能止损止盈
+        /// 计算智能止损止盈（含筹码峰支撑、时间止损、回撤保护）
         /// </summary>
         public static SmartStopLoss CalculateSmartStopLoss(
             StockDeepAnalysisContext ctx,
@@ -277,28 +300,55 @@ namespace StockTracker
             double currentPrice = ctx.CurrentPrice;
             double atr = CalculateATR(recentPrices, 14); // 平均真实波幅
 
-            // 1. 动态止损 (基于ATR)
-            double stopLossMultiplier = 2.0; // 2倍ATR止损
-            if (score.RiskScore >= 70) stopLossMultiplier = 1.5; // 低风险可用更紧止损
-            else if (score.RiskScore < 50) stopLossMultiplier = 2.5; // 高风险需要更宽止损
+            // 1. 动态止损 (基于ATR + 筹码峰支撑融合)
+            double stopLossMultiplier = 2.0;
+            if (score.RiskScore >= 70) stopLossMultiplier = 1.5;
+            else if (score.RiskScore < 50) stopLossMultiplier = 2.5;
 
-            stopLoss.DynamicStopLoss = (decimal)(currentPrice - atr * stopLossMultiplier);
+            double atrStop = currentPrice - atr * stopLossMultiplier;
 
-            // 2. 移动止损 (保护利润)
-            stopLoss.TrailingStop = (decimal)(currentPrice * 0.95); // 初始5%移动止损
+            // 融合筹码峰支撑位：取ATR止损和筹码峰支撑的较优者
+            if (ctx.ChipPeakSupport > 0 && ctx.ChipPeakSupport < currentPrice)
+            {
+                // 筹码峰支撑在ATR止损上方 → 使用筹码峰支撑（更紧的保护）
+                // 筹码峰支撑在ATR止损下方 → 使用筹码峰支撑下方1%作为宽止损
+                if (ctx.ChipPeakSupport > atrStop)
+                    stopLoss.DynamicStopLoss = (decimal)(ctx.ChipPeakSupport * 0.99); // 略低于筹码峰支撑
+                else
+                    stopLoss.DynamicStopLoss = (decimal)Math.Min(atrStop, ctx.ChipPeakSupport * 0.97);
+            }
+            else
+            {
+                stopLoss.DynamicStopLoss = (decimal)atrStop;
+            }
 
-            // 3. 时间止损 (持有超过20天未达标)
-            // 这需要在实际持有过程中动态调整
+            // 2. 移动止损 (保护利润) - 基于回撤保护
+            stopLoss.TrailingStop = (decimal)(currentPrice * 0.93); // 初始7%回撤保护（更紧）
 
-            // 4. 分批止盈目标
-            double riskAmount = currentPrice - (double)stopLoss.DynamicStopLoss;
+            // 3. 时间止损价 (持有超过指定天数未达标时触发)
+            // 以买入价上下2%为时间止损触发区
+            stopLoss.TimeStopLoss = (decimal)(currentPrice * 0.98); // 2%成本保本线
 
-            // 第一目标: 风险的1.5倍
-            stopLoss.TargetPrice1 = (decimal)(currentPrice + riskAmount * 1.5);
-            // 第二目标: 风险的2.5倍
-            stopLoss.TargetPrice2 = (decimal)(currentPrice + riskAmount * 2.5);
-            // 第三目标: 风险的4倍
-            stopLoss.TargetPrice3 = (decimal)(currentPrice + riskAmount * 4.0);
+            // 4. 分批止盈目标（融合筹码峰压力位）
+            double riskAmount = Math.Abs(currentPrice - (double)stopLoss.DynamicStopLoss);
+
+            // 第一目标: 风险1.5倍或筹码峰压力位（取较小值）
+            double target1Candidate = currentPrice + riskAmount * 1.5;
+            if (ctx.ChipPeakPressure > currentPrice && ctx.ChipPeakPressure < target1Candidate)
+            {
+                stopLoss.TargetPrice1 = (decimal)(ctx.ChipPeakPressure * 0.99); // 筹码峰压力位下方
+            }
+            else
+            {
+                stopLoss.TargetPrice1 = (decimal)Math.Min(target1Candidate, currentPrice * 1.08);
+            }
+
+            // 第二目标: 风险的2.5倍或MA60偏离
+            double target2Candidate = currentPrice + riskAmount * 2.5;
+            stopLoss.TargetPrice2 = (decimal)Math.Min(target2Candidate, currentPrice * 1.15);
+
+            // 第三目标: 风险4倍（长线目标）
+            stopLoss.TargetPrice3 = (decimal)Math.Min(currentPrice + riskAmount * 4.0, currentPrice * 1.25);
 
             // 生成离场策略
             GenerateExitStrategy(stopLoss, ctx, score);
@@ -329,7 +379,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 生成离场策略
+        /// 生成离场策略（增强版：含时间止损 + 回撤保护 + 筹码峰）
         /// </summary>
         private static void GenerateExitStrategy(
             SmartStopLoss stopLoss,
@@ -345,12 +395,30 @@ namespace StockTracker
             strategy.AppendLine($"- 保留20%作为长期持仓");
 
             strategy.AppendLine("\n止损策略:");
-            strategy.AppendLine($"- 动态止损: {stopLoss.DynamicStopLoss:F2} (严格执行)");
-            strategy.AppendLine($"- 移动止损: 价格上涨后动态上移，保护利润");
+            strategy.AppendLine($"- ATR+筹码峰止损: {stopLoss.DynamicStopLoss:F2} (严格执行)");
+            strategy.AppendLine($"- 移动止损: 价格上涨后动态上移，回撤7%触发");
+            strategy.AppendLine($"- 时间止损: 持有>15天涨幅<3%，止损价{stopLoss.TimeStopLoss:F2}（保本出场）");
+
+            // 筹码峰相关信号
+            if (ctx.ChipPeakPressure > 0 && ctx.CurrentPrice < ctx.ChipPeakPressure * 0.97)
+            {
+                stopLoss.ExitSignals.Add($"⚠️ 上方筹码峰压力{ctx.ChipPeakPressure:F2}，到达后必须减仓50%");
+            }
+
+            // 背离信号优先级最高
+            if (ctx.TechScore?.HasBearishDivergence == true)
+            {
+                stopLoss.ExitSignals.Add("🔴 MACD顶背离！立即减仓或清仓");
+            }
 
             if (ctx.ProfitRatio > 80)
             {
-                stopLoss.ExitSignals.Add("⚠️ 获利盘过多，达到第一目标后立即减仓50%");
+                stopLoss.ExitSignals.Add("⚠️ 获利盘>80%，达到第一目标后立即减仓50%");
+            }
+
+            if (ctx.ProfitRatio > 90)
+            {
+                stopLoss.ExitSignals.Add("🔴 获利盘>90%，极度危险，建议立即减仓");
             }
 
             if (ctx.TurnoverRate > 15)
@@ -362,6 +430,10 @@ namespace StockTracker
             {
                 stopLoss.ExitSignals.Add("⚠️ 风险评分较低，建议严格执行止损，不可侥幸");
             }
+
+            // 回撤保护信号
+            stopLoss.HoldSignals.Add("持仓期间若盈利回吐>5%，立即止盈50%");
+            stopLoss.HoldSignals.Add("连续3天不创新高，减仓30%锁定利润");
 
             stopLoss.ExitStrategy = strategy.ToString();
         }

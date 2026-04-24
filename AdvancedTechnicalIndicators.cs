@@ -284,6 +284,8 @@ namespace StockTracker
         {
             var score = new TechnicalAnalysisScore();
 
+            if (prices.Count < 20) return score;
+
             // 基础指标
             var (rsi6, rsi12, rsi24) = CalculateRSI(prices);
             score.RSI6 = rsi6;
@@ -323,10 +325,226 @@ namespace StockTracker
             score.VolumeChangeRate = CalculateVolumeChangeRate(volumes);
             score.Pattern = IdentifyTechnicalPattern(prices);
 
+            // === 新增：背离检测 ===
+            DetectDivergences(score, prices, volumes);
+
+            // === 新增：历史分位数计算 ===
+            CalculateHistoricalPercentiles(score, prices, volumes);
+
             // 技术信号识别
             score.Signals = IdentifyTechnicalSignals(score);
 
             return score;
+        }
+
+        /// <summary>
+        /// 检测各类背离（MACD背离、RSI背离、量价背离）
+        /// </summary>
+        public static void DetectDivergences(TechnicalAnalysisScore score, List<double> prices, List<double> volumes)
+        {
+            if (prices.Count < 40) return;
+            var divergences = new List<string>();
+
+            // === MACD背离检测 ===
+            // 计算MACD柱状图序列用于找峰值
+            var macdHistograms = new List<double>();
+            for (int i = 26; i < prices.Count; i++)
+            {
+                var slice = prices.Take(i + 1).ToList();
+                var (m, s, h) = CalculateMACD(slice);
+                macdHistograms.Add(h);
+            }
+
+            if (macdHistograms.Count >= 10)
+            {
+                // 找最近两个价格高点和对应的MACD柱高
+                int recentPeriod = Math.Min(30, prices.Count - 26);
+                var recentPrices = prices.Skip(prices.Count - recentPeriod).ToList();
+                var recentHistograms = macdHistograms.Skip(macdHistograms.Count - recentPeriod).ToList();
+
+                // 顶背离：价格创新高但MACD柱不创新高（缩小或走平）
+                int halfPeriod = recentPeriod / 2;
+                var firstHalfPrices = recentPrices.Take(halfPeriod).ToList();
+                var secondHalfPrices = recentPrices.Skip(halfPeriod).ToList();
+                var firstHalfMacd = recentHistograms.Take(halfPeriod).ToList();
+                var secondHalfMacd = recentHistograms.Skip(halfPeriod).ToList();
+
+                double maxPriceFirst = firstHalfPrices.Max();
+                double maxPriceSecond = secondHalfPrices.Max();
+                double maxMacdFirst = firstHalfMacd.Max();
+                double maxMacdSecond = secondHalfMacd.Max();
+
+                // 价创新高但MACD柱峰降低 → 顶背离
+                if (maxPriceSecond > maxPriceFirst * 1.02 && maxMacdSecond < maxMacdFirst * 0.8)
+                {
+                    score.HasBearishDivergence = true;
+                    divergences.Add("🔴 MACD顶背离（价创新高动能减弱）");
+                }
+
+                // 底背离：价格创新低但MACD柱不创新低
+                double minPriceFirst = firstHalfPrices.Min();
+                double minPriceSecond = secondHalfPrices.Min();
+                double minMacdFirst = firstHalfMacd.Min();
+                double minMacdSecond = secondHalfMacd.Min();
+
+                if (minPriceSecond < minPriceFirst * 0.98 && minMacdSecond > minMacdFirst)
+                {
+                    score.HasBullishDivergence = true;
+                    divergences.Add("🟢 MACD底背离（价创新低动能减弱）");
+                }
+            }
+
+            // === RSI背离检测 ===
+            // 计算RSI序列
+            var rsiList = new List<double>();
+            for (int i = 14; i < prices.Count; i++)
+            {
+                var slice = prices.Skip(i - 14).Take(14).ToList();
+                rsiList.Add(CalculateRSIInternal(slice, 14));
+            }
+
+            if (rsiList.Count >= 10)
+            {
+                int recentPeriod = Math.Min(20, rsiList.Count);
+                var recentPriceSlice = prices.Skip(prices.Count - recentPeriod).ToList();
+                var recentRsiSlice = rsiList.Skip(rsiList.Count - recentPeriod).ToList();
+                int half = recentPeriod / 2;
+
+                // RSI顶背离
+                double priceMax1 = recentPriceSlice.Take(half).Max();
+                double priceMax2 = recentPriceSlice.Skip(half).Max();
+                double rsiMax1 = recentRsiSlice.Take(half).Max();
+                double rsiMax2 = recentRsiSlice.Skip(half).Max();
+
+                if (priceMax2 > priceMax1 && rsiMax2 < rsiMax1 - 3)
+                {
+                    score.HasRSIBearishDivergence = true;
+                    divergences.Add("🔴 RSI顶背离（价格新高RSI未新高）");
+                }
+
+                // RSI底背离
+                double priceMin1 = recentPriceSlice.Take(half).Min();
+                double priceMin2 = recentPriceSlice.Skip(half).Min();
+                double rsiMin1 = recentRsiSlice.Take(half).Min();
+                double rsiMin2 = recentRsiSlice.Skip(half).Min();
+
+                if (priceMin2 < priceMin1 && rsiMin2 > rsiMin1 + 3)
+                {
+                    score.HasRSIBullishDivergence = true;
+                    divergences.Add("🟢 RSI底背离（价格新低RSI未新低）");
+                }
+            }
+
+            // === 量价背离检测 ===
+            if (volumes.Count >= 5)
+            {
+                double recentPriceChange = (prices.Last() - prices[prices.Count - 6]) / prices[prices.Count - 6] * 100;
+                double recentAvgVol = volumes.TakeLast(5).Average();
+                double priorAvgVol = volumes.Skip(volumes.Count - 10).Take(5).Average();
+
+                // 价涨量缩 → 量价背离（看空）
+                if (recentPriceChange > 3 && priorAvgVol > 0 && recentAvgVol / priorAvgVol < 0.8)
+                {
+                    score.HasVolumePriceDivergence = true;
+                    divergences.Add("⚠️ 量价背离（价涨量缩，上涨乏力）");
+                }
+                // 价跌量增 → 恐慌盘（看跌中继）
+                if (recentPriceChange < -3 && priorAvgVol > 0 && recentAvgVol / priorAvgVol > 1.3)
+                {
+                    score.HasVolumePriceDivergence = true;
+                    divergences.Add("⚠️ 放量下跌（恐慌抛售或主力出货）");
+                }
+                // 价跌量缩到极致 → 可能见底
+                if (recentPriceChange < -2 && recentAvgVol < priorAvgVol * 0.5 && recentAvgVol > 0)
+                {
+                    divergences.Add("🔍 缩量下跌（可能接近底部）");
+                }
+            }
+
+            score.DivergenceDetail = string.Join(" | ", divergences);
+        }
+
+        /// <summary>
+        /// 计算历史分位数（RSI、成交量、MACD柱）
+        /// </summary>
+        public static void CalculateHistoricalPercentiles(TechnicalAnalysisScore score, List<double> prices, List<double> volumes)
+        {
+            // RSI分位数
+            var rsiHistory = new List<double>();
+            for (int i = 14; i < prices.Count; i++)
+            {
+                var slice = prices.Skip(i - 14).Take(14).ToList();
+                rsiHistory.Add(CalculateRSIInternal(slice, 14));
+            }
+            if (rsiHistory.Count > 0)
+            {
+                rsiHistory.Sort();
+                int rsiPos = rsiHistory.BinarySearch(score.RSI12);
+                if (rsiPos < 0) rsiPos = ~rsiPos;
+                score.RSIPercentile = (double)rsiPos / rsiHistory.Count * 100;
+            }
+
+            // 成交量分位数
+            if (volumes.Count >= 20)
+            {
+                var volAvgs = new List<double>();
+                for (int i = 5; i < volumes.Count; i++)
+                {
+                    volAvgs.Add(volumes.Skip(i - 5).Take(5).Average());
+                }
+                if (volAvgs.Count > 0)
+                {
+                    double currentVol = volumes.TakeLast(1).First();
+                    volAvgs.Sort();
+                    int volPos = volAvgs.BinarySearch(currentVol);
+                    if (volPos < 0) volPos = ~volPos;
+                    score.VolumePercentile = (double)volPos / volAvgs.Count * 100;
+                }
+            }
+
+            // MACD柱分位数
+            var macdHistHistory = new List<double>();
+            for (int i = 26; i < prices.Count; i++)
+            {
+                var slice = prices.Take(i + 1).ToList();
+                var (_, _, h) = CalculateMACD(slice);
+                macdHistHistory.Add(h);
+            }
+            if (macdHistHistory.Count > 5)
+            {
+                macdHistHistory.Sort();
+                int macdPos = macdHistHistory.BinarySearch(score.MACDHistogram);
+                if (macdPos < 0) macdPos = ~macdPos;
+                score.MACDHistogramPercentile = (double)macdPos / macdHistHistory.Count * 100;
+            }
+        }
+
+        /// <summary>
+        /// 多周期共振分析
+        /// </summary>
+        public static void AnalyzeMultiTimeframeResonance(
+            TechnicalAnalysisScore dailyScore,
+            TechnicalAnalysisScore score60Min,
+            TechnicalAnalysisScore score15Min)
+        {
+            // 多周期看多共振：日线+60分钟+15分钟MACD全部金叉
+            bool dailyBullish = dailyScore.MACD > dailyScore.MACDSignal && dailyScore.MACDHistogram > 0;
+            bool hourBullish = score60Min.MACD > score60Min.MACDSignal && score60Min.MACDHistogram > 0;
+            bool min15Bullish = score15Min.MACD > score15Min.MACDSignal && score15Min.MACDHistogram > 0;
+
+            dailyScore.IsMultiTimeframeBullish = dailyBullish && hourBullish && min15Bullish;
+            dailyScore.IsMultiTimeframeBearish = !dailyBullish && !hourBullish && !min15Bullish;
+
+            if (dailyScore.IsMultiTimeframeBullish)
+                dailyScore.MultiTimeframeDetail = "🟢 日线+60分钟+15分钟 MACD同步金叉，多周期共振做多";
+            else if (dailyScore.IsMultiTimeframeBearish)
+                dailyScore.MultiTimeframeDetail = "🔴 日线+60分钟+15分钟 MACD同步死叉，多周期共振做空";
+            else if (dailyBullish && !hourBullish && min15Bullish)
+                dailyScore.MultiTimeframeDetail = "🟡 日线+15分钟MACD金叉，60分钟未确认，等待60分钟信号";
+            else if (dailyBullish)
+                dailyScore.MultiTimeframeDetail = "🟢 日线MACD金叉，小周期等待确认";
+            else
+                dailyScore.MultiTimeframeDetail = "⚪ 多周期信号不一致，趋势不明确";
         }
 
         /// <summary>
@@ -337,15 +555,19 @@ namespace StockTracker
             var signals = new List<string>();
 
             // RSI信号
-            if (score.RSI12 < 30) signals.Add("RSI超卖");
-            else if (score.RSI12 > 70) signals.Add("RSI超买");
+            if (score.RSI12 < 25) signals.Add("RSI严重超卖(买点)");
+            else if (score.RSI12 < 35) signals.Add($"RSI超卖({score.RSI12:F0},分位{score.RSIPercentile:F0}%)");
+            else if (score.RSI12 > 75) signals.Add($"RSI超买({score.RSI12:F0},分位{score.RSIPercentile:F0}%)");
+            else if (score.RSI12 > 85) signals.Add("RSI严重超买(卖点)");
             else if (score.RSI12 > 40 && score.RSI12 < 60) signals.Add("RSI中性");
 
             // MACD信号
             if (score.MACD > score.MACDSignal && score.MACDHistogram > 0)
-                signals.Add("MACD金叉");
+                signals.Add("MACD金叉(买入信号)");
             else if (score.MACD < score.MACDSignal && score.MACDHistogram < 0)
-                signals.Add("MACD死叉");
+                signals.Add("MACD死叉(卖出信号)");
+            else if (score.MACD > score.MACDSignal && score.MACDHistogram < 0)
+                signals.Add("MACD弱势金叉(谨慎)");
 
             // KDJ信号
             if (score.KDJ_K > score.KDJ_D && score.KDJ_K < 80)
@@ -355,14 +577,33 @@ namespace StockTracker
             else if (score.KDJ_J > 100) signals.Add("KDJ严重超买");
             else if (score.KDJ_J < 0) signals.Add("KDJ严重超卖");
 
-            // 布林带信号
-            double currentPrice = score.BollingerMiddle; // 这里应该传入当前价格
-            if (currentPrice > score.BollingerUpper) signals.Add("突破布林上轨");
-            else if (currentPrice < score.BollingerLower) signals.Add("跌破布林下轨");
+            // 布林带信号（使用当前价格需要通过参数传入，这里用中轨近似）
+            if (score.Volatility < 10 && score.BollingerWidth < 5)
+                signals.Add("布林带收窄(即将变盘)");
+            else if (score.BollingerWidth > 20)
+                signals.Add("布林带极度扩张(波动加大)");
 
             // 动量信号
             if (score.Momentum > 5) signals.Add("强势动量");
             else if (score.Momentum < -5) signals.Add("弱势动量");
+
+            // === 背离信号（高优先级） ===
+            if (score.HasBearishDivergence)
+                signals.Add("🔴 MACD顶背离(强烈看空)");
+            if (score.HasBullishDivergence)
+                signals.Add("🟢 MACD底背离(反转信号)");
+            if (score.HasRSIBearishDivergence)
+                signals.Add("🔴 RSI顶背离(动能衰竭)");
+            if (score.HasRSIBullishDivergence)
+                signals.Add("🟢 RSI底背离(动能积聚)");
+            if (score.HasVolumePriceDivergence)
+                signals.Add("⚠️ 量价背离(趋势不可持续)");
+
+            // === 多周期共振信号 ===
+            if (score.IsMultiTimeframeBullish)
+                signals.Add("🟢 多周期MACD共振做多");
+            else if (score.IsMultiTimeframeBearish)
+                signals.Add("🔴 多周期MACD共振做空");
 
             return signals;
         }
@@ -424,6 +665,24 @@ namespace StockTracker
         // 技术信号
         public List<string> Signals { get; set; } = new();
 
+        // === 新增：背离指标 ===
+        public bool HasBearishDivergence { get; set; } // MACD顶背离
+        public bool HasBullishDivergence { get; set; } // MACD底背离
+        public bool HasRSIBearishDivergence { get; set; } // RSI顶背离
+        public bool HasRSIBullishDivergence { get; set; } // RSI底背离
+        public bool HasVolumePriceDivergence { get; set; } // 量价背离
+        public string DivergenceDetail { get; set; } = string.Empty;
+
+        // === 新增：多周期共振 ===
+        public bool IsMultiTimeframeBullish { get; set; } // 多周期看多共振
+        public bool IsMultiTimeframeBearish { get; set; } // 多周期看空共振
+        public string MultiTimeframeDetail { get; set; } = string.Empty;
+
+        // === 新增：历史分位数 ===
+        public double RSIPercentile { get; set; }         // RSI在历史中的分位数
+        public double VolumePercentile { get; set; }      // 成交量在历史中的分位数
+        public double MACDHistogramPercentile { get; set; } // MACD柱在历史中的分位数
+
         /// <summary>
         /// 获取技术分析摘要
         /// </summary>
@@ -435,6 +694,8 @@ namespace StockTracker
             summary.AppendLine($"KDJ: K={KDJ_K:F1} D={KDJ_D:F1} J={KDJ_J:F1}");
             summary.AppendLine($"布林带宽度: {BollingerWidth:F2}% | 波动率: {Volatility:F2}%");
             summary.AppendLine($"技术形态: {GetPatternName(Pattern)}");
+            if (!string.IsNullOrEmpty(DivergenceDetail))
+                summary.AppendLine($"背离: {DivergenceDetail}");
             summary.AppendLine($"主要信号: {string.Join(", ", Signals.Take(3))}");
             return summary.ToString();
         }
