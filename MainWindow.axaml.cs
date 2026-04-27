@@ -128,6 +128,7 @@ public partial class MainWindow : Window
         // 新增：加载 AI/邮件/定时任务配置并启动调度器
         LoadSettings();
         SetupScheduleTimer();
+        SetupTrayIcon();
     }
 
     private void SetupWatcher()
@@ -188,17 +189,68 @@ public partial class MainWindow : Window
 
         // 监听窗口状态变化，确保从最小化恢复时重新计算布局
         this.PropertyChanged += (s, e) => {
-            if (e.Property.Name == "WindowState" && this.WindowState == WindowState.Normal)
+            if (e.Property.Name == "WindowState")
             {
-                Dispatcher.UIThread.Post(() => {
-                    this.InvalidateMeasure();
-                    // 强制触发一次 SizeToContent 重新计算
-                    var current = this.SizeToContent;
-                    this.SizeToContent = SizeToContent.Manual;
-                    this.SizeToContent = current;
-                }, DispatcherPriority.Render);
+                if (this.WindowState == WindowState.Normal)
+                {
+                    Dispatcher.UIThread.Post(() => {
+                        this.InvalidateMeasure();
+                        // 强制触发一次 SizeToContent 重新计算
+                        var current = this.SizeToContent;
+                        this.SizeToContent = SizeToContent.Manual;
+                        this.SizeToContent = current;
+                    }, DispatcherPriority.Render);
+                }
+                else if (this.WindowState == WindowState.Minimized)
+                {
+                    if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                    {
+                        Dispatcher.UIThread.Post(() => {
+                            this.Hide();
+                        });
+                    }
+                }
             }
         };
+    }
+
+    private void SetupTrayIcon()
+    {
+        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+        {
+            var trayIcon = new TrayIcon
+            {
+                ToolTipText = "StockTracker"
+            };
+
+            try
+            {
+                using var stream = Avalonia.Platform.AssetLoader.Open(new Uri("avares://StockTracker/icon.ico"));
+                trayIcon.Icon = new WindowIcon(stream);
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("Load TrayIcon Error", ex);
+            }
+
+            var menu = new NativeMenu();
+            var showItem = new NativeMenuItem("显示主界面");
+            showItem.Click += (s, e) => { this.Show(); this.WindowState = WindowState.Normal; };
+            menu.Items.Add(showItem);
+
+            var exitItem = new NativeMenuItem("退出");
+            exitItem.Click += (s, e) => BtnClose_Click(null, new RoutedEventArgs());
+            menu.Items.Add(exitItem);
+
+            trayIcon.Menu = menu;
+            trayIcon.Clicked += (s, e) => { this.Show(); this.WindowState = WindowState.Normal; };
+
+            var trayIcons = new TrayIcons { trayIcon };
+            if (Application.Current != null)
+            {
+                TrayIcon.SetIcons(Application.Current, trayIcons);
+            }
+        }
     }
 
     private ContextMenu CreateSharedContextMenu(string? targetCode)
