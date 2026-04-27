@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private List<string> _stocks = new();
     private readonly string _configFile;
     private HttpClient? _httpClient;
-    private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, DateTime LastUpdated)> _klineCache = new();
+    private Dictionary<string, (double TotalVolume, double TotalClose, int Count, double RecentTrend, double MA5, DateTime LastUpdated)> _klineCache = new();
     private FileSystemWatcher? _watcher;
     private bool _isScreenerRunning = false;
     private string _dataSource = "Tencent"; // Default to Tencent
@@ -756,7 +756,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            string secid = symbol.StartsWith("6") ? "1." + symbol : "0." + symbol;
+            // 根据代码判断市场前缀: 1=上海, 0=深圳/北京
+            // 上交所: 5/6/7/9 开头; 深交所: 0/1/2/3 开头; 北交所: 4/8 开头
+            string marketPrefix = (symbol.StartsWith("6") || symbol.StartsWith("9") ||
+                                   symbol.StartsWith("5") || symbol.StartsWith("7")) ? "1" : "0";
+            string secid = marketPrefix + "." + symbol;
             string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&ut=7eea3edcaed734bea9cbbc2440b282fb&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=250";
 
             string jsonStr = "";
@@ -844,22 +848,25 @@ public partial class MainWindow : Window
             double gain20d = pcts.Skip(count - 20).Sum();
 
             // 1. 压制顶部涨幅，确保还没起飞 (放宽以适应A股本身的高波动)
-            if (gain5d < -8.0 || gain5d > 12.0) return null;
-            if (gain10d > 20.0) return null;
-            if (gain20d > 35.0 || gain20d < -15.0) return null;
+            if (gain5d < -8.0 || gain5d > 15.0) return null;
+            if (gain10d > 25.0) return null;
+            if (gain20d > 40.0 || gain20d < -18.0) return null;
 
-            // 2. 拒绝过去5天内有过明显起飞动作的（如>8%的大单日涨幅）
+            // 2. 拒绝过去5天内有过连续拉升的（改为减分而非硬淘汰，避免与MACD金叉矛盾）
             var recent5PctEarlyCheck = pcts.Skip(count - 5).ToList();
-            if (recent5PctEarlyCheck.Any(p => p > 8.0)) return null;
+            int bigDayCount = recent5PctEarlyCheck.Count(p => p > 8.0);
+            if (bigDayCount >= 2) return null; // 2次以上大阳 → 已起飞，淘汰
+            if (bigDayCount == 1) finalScore -= 15; // 有1次大阳但其他条件好 → 减分不放弃
 
-            // 3. 核心蓄势特征：近10日纯横盘振幅测算
+            // 3. 核心蓄势特征：近10日纯横盘振幅测算（改为减分，避免与金叉矛盾）
             var recent10High = highs.Skip(count - 10).ToList();
             var recent10Low = lows.Skip(count - 10).ToList();
             double highest10 = recent10High.Max();
             double lowest10 = recent10Low.Min();
             double consolidationRange = (highest10 - lowest10) / lowest10;
-            // A股10天内振幅8%太难了，放宽到18%（大致是一个涨停板以内的上下震荡）
-            if (consolidationRange > 0.18) return null; 
+            // A股10天内振幅，>22% 说明已经起飞或剧烈波动 → 淘汰
+            if (consolidationRange > 0.22) return null;
+            if (consolidationRange > 0.15) finalScore -= 10; // 振幅偏大减分不淘汰
 
             // 长期高位过滤：偏离半年线(MA200)超过50%说明已进入高位长期盘整区，抛弃
             if (adjustedCurrent > ma200 * 1.5) return null;
@@ -912,8 +919,8 @@ public partial class MainWindow : Window
             }
             double atr = totalTr / 20;
             double atrRatio = (atr / adjustedCurrent) * 100;
-            // 缩窄限制：因为我们要找的是底部的票，ATR波幅极度压缩 (容许极低波动0.5起)
-            if (atrRatio > 6.0 || atrRatio < 0.5) return null;
+            // 缩窄限制：寻找底部蓄势票，容许极低波动(0.3%起)，拒绝剧烈波动(>8%)
+            if (atrRatio > 8.0 || atrRatio < 0.3) return null;
 
             // ATR在1-3%区间最理想，死寂状态
             if (atrRatio <= 3.0) finalScore += 5;
@@ -985,11 +992,11 @@ public partial class MainWindow : Window
             double targetPrice = adjustedCurrent * 1.08;
             double riskRewardRatio = (targetPrice - adjustedCurrent) / Math.Max(0.01, adjustedCurrent - stopLossPrice);
 
-            if (riskRewardRatio < 2.0) return null; // 盈亏比必须 >= 2.0
+            if (riskRewardRatio < 1.5) return null; // 盈亏比 >= 1.5
 
             // 盈亏比越高，加分越多
             if (riskRewardRatio >= 3.0) finalScore += 10;
-            else if (riskRewardRatio >= 2.5) finalScore += 5;
+            else if (riskRewardRatio >= 2.0) finalScore += 5;
 
             // --- C: 优化买点逻辑 (收紧偏差到极小，要求伏击位置) ---
             string buyPoint = "";
@@ -998,8 +1005,8 @@ public partial class MainWindow : Window
             double lastPct = recent5Pct.Last();
             double lastVol = vols.Last();
 
-            // 针对蓄势潜伏，压制空间在 MA20 附近 (-4% 到 +6%)
-            if (ma20Deviation < -4.0 || ma20Deviation > 6.0) return null;
+            // 针对蓄势潜伏，放宽偏差到 -6% ~ +10%（原 -4%~+6% 过于严苛）
+            if (ma20Deviation < -6.0 || ma20Deviation > 10.0) return null;
 
             // 1. 静谧潜伏：横盘不跌，量能极度萎缩
             if (lastVol < avgVol * 0.85 && Math.Abs(lastPct) < 3.0)
@@ -1066,13 +1073,27 @@ public partial class MainWindow : Window
             if (volumePriceScore < 0) return null;
 
             // --- D: 活跃度要求 ---
-            if (_dataSource == "Tencent" || _dataSource == "Yahoo") { 
+            if (_dataSource == "Tencent" || _dataSource == "Yahoo") {
                 // 放宽腾讯和雅虎源活跃度限制，二者历史K线接口不含换手率
-                if (currentTurnover <= 2.0) return null; 
+                if (currentTurnover <= 2.0) return null;
             }
             else {
                 var recent5T = turnovers.Skip(count - 5).ToList();
                 if (recent5T.Max() <= 3.5 || recent5T.Average() <= 1.8) return null;
+            }
+
+            // --- E: 大盘环境过滤 (熊市不选股) ---
+            if (marketEnv != null)
+            {
+                if (marketEnv.IsBearish)
+                {
+                    finalScore *= 0.7; // 熊市打7折，显著降低通过率
+                }
+                else if (marketEnv.IsNeutral)
+                {
+                    finalScore *= 0.9; // 震荡市打9折
+                }
+                // 多头市场不折扣
             }
 
             return (ma20, ma200, buyPoint, finalScore);
@@ -1330,13 +1351,12 @@ public partial class MainWindow : Window
                 totalVolume = cache.TotalVolume;
                 count = cache.Count;
                 recentTrend = cache.RecentTrend;
-                
+                ma5 = cache.MA5;
+
                 // 重新从缓存计算正确的 MA
                 if (count > 0)
                 {
                     ma20 = cache.TotalClose / count;
-                    // 如果缓存数据由于历史原因（旧代码）导致 TotalClose 是总和，这里计算是正确的。
-                    // 但我们需要确保逻辑一致。这里假设缓存存储的是总和。
                 }
             }
             else
@@ -1383,7 +1403,7 @@ public partial class MainWindow : Window
                         ma20 = historicalCloseSum / count;
                         ma5 = ma5Sum / Math.Min(5, count);
                         
-                        _klineCache[fullCode] = (totalVolume, historicalCloseSum, count, recentTrend, DateTime.Now);
+                        _klineCache[fullCode] = (totalVolume, historicalCloseSum, count, recentTrend, ma5, DateTime.Now);
                     }
                 }
             }
@@ -1539,7 +1559,11 @@ public partial class MainWindow : Window
 
                 return $"{status}{period}";
             }
-        } catch { }
+        }
+        catch (Exception ex)
+        {
+            Program.LogError($"GetVolumePrediction failed for {fullCode}", ex);
+        }
         return "分析中...";
     }
 
@@ -1879,8 +1903,9 @@ public partial class MainWindow : Window
                 foreach(var idx in marketIndices) indexDataList.Add(new MarketEnvironmentAnalyzer.MarketIndexData { Name = idx.Name, Price = idx.Price, PctChange = idx.PctChange });
             }
 
-            // 2. 构建 Prompt 并调用 AI
-            string prompt = EnhancedAiPromptBuilder.BuildMarketReviewPrompt(overview, indexDataList);
+            // 2. 分析市场环境并构建 Prompt
+            var marketCondition = MarketEnvironmentAnalyzer.AnalyzeMarketCondition(indexDataList);
+            string prompt = EnhancedAiPromptBuilder.BuildMarketReviewPrompt(overview, indexDataList, marketCondition);
             string aiResponse = await CallAiApiAsync(prompt);
             string finalReport = $"大盘复盘时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
 
@@ -1990,8 +2015,7 @@ public partial class MainWindow : Window
                 var overview = await StockDataProvider.FetchMarketOverviewAsync(_appSettings.TavilyApiKey);
                 if (overview != null)
                 {
-                    allSectors = overview.TopSectors.Concat(overview.BottomSectors)
-                        .GroupBy(s => s.Name).Select(g => g.First()).ToList();
+                    allSectors = overview.AllSectors ?? new List<SectorRanking>();
                 }
             }
             catch { }

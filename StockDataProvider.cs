@@ -118,6 +118,7 @@ namespace StockTracker
         public double TotalAmount { get; set; } // 亿元
         public List<SectorRanking> TopSectors { get; set; } = new();
         public List<SectorRanking> BottomSectors { get; set; } = new();
+        public List<SectorRanking> AllSectors { get; set; } = new(); // 完整板块列表
         public List<string> MarketNews { get; set; } = new();
     }
 
@@ -892,7 +893,9 @@ namespace StockTracker
                 // 仅获取关键字段: f3(涨跌幅), f12(代码), f14(名称), f17(昨收), f2(现价), f6(成交额)
                 // fltt=2 参数可能会导致 clist/get 接口 502 报错或连接重置，暂时回滚此参数
                 string url = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fields=f2,f3,f12,f14,f17,f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23";
-                var jsonStr = await _httpClient.GetStringAsync(url);
+                var jsonStr = await NetworkHelper.HttpGetWithRetryAsync(url, 2);
+                if (string.IsNullOrEmpty(jsonStr)) return overview;
+
                 var jsonObj = JObject.Parse(jsonStr);
                 var diff = jsonObj["data"]?["diff"] as JArray;
 
@@ -905,12 +908,12 @@ namespace StockTracker
                         if (!double.TryParse(item["f2"]?.ToString(), out var current)) continue;
                         if (!double.TryParse(item["f17"]?.ToString(), out var preClose)) continue;
                         if (!double.TryParse(item["f6"]?.ToString(), out var amount)) continue;
-                        
+
                         double pct = rawPct / 100.0; // 东财不加 fltt=2 时，f3 是放大100倍的值
-                        
+
                         // 过滤停牌、退市股票（无现价或无成交）
                         if (current <= 0 || amount <= 0) continue;
-                        
+
                         string code = item["f12"]?.ToString() ?? "";
                         string name = item["f14"]?.ToString() ?? "";
 
@@ -920,15 +923,17 @@ namespace StockTracker
                         else if (pct < 0) overview.DownCount++;
                         else overview.FlatCount++;
 
-                        // 粗略判断涨跌停 (A 股 10% / 20% / 30% / 5% 规则)
+                        // 精确判断涨跌停: 使用昨收计算理论涨跌停价
                         double ratio = 0.1;
                         if (code.StartsWith("688") || code.StartsWith("30")) ratio = 0.2;
                         else if (code.StartsWith("92") || code.StartsWith("43") || code.StartsWith("8") || code.StartsWith("4")) ratio = 0.3;
                         else if (name.Contains("ST")) ratio = 0.05;
 
-                        // 这里使用简化的百分比判断，实际应使用昨收计算精准价格，但对于复盘总结来说，误差可接受
-                        if (pct >= (ratio * 100 - 0.1)) overview.LimitUpCount++;
-                        if (pct <= -(ratio * 100 - 0.1)) overview.LimitDownCount++;
+                        // 修复：pct已经是百分比形式(如0.099代表9.9%), ratio是比例(如0.1代表10%)
+                        // 涨跌停判断: current/preClose - 1 与 ratio 比较
+                        double actualChange = (current - preClose) / preClose;
+                        if (actualChange >= (ratio - 0.001)) overview.LimitUpCount++;
+                        if (actualChange <= -(ratio - 0.001)) overview.LimitDownCount++;
                     }
                 }
 
@@ -936,20 +941,21 @@ namespace StockTracker
                 try
                 {
                     string indexUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&fields=f6&fs=i:1.000001,i:0.399001";
-                    var idxStr = await _httpClient.GetStringAsync(indexUrl);
-                    var idxObj = JObject.Parse(idxStr);
-                    var idxDiff = idxObj["data"]?["diff"] as JArray;
-                    if (idxDiff != null)
+                    var idxStr = await NetworkHelper.HttpGetWithRetryAsync(indexUrl, 1);
+                    if (!string.IsNullOrEmpty(idxStr))
                     {
-                        double exactTotalAmount = 0;
-                        foreach (var idx in idxDiff)
+                        var idxObj = JObject.Parse(idxStr);
+                        var idxDiff = idxObj["data"]?["diff"] as JArray;
+                        if (idxDiff != null)
                         {
-                            if (double.TryParse(idx["f6"]?.ToString(), out var amt))
+                            double exactTotalAmount = 0;
+                            foreach (var idx in idxDiff)
                             {
-                                exactTotalAmount += amt;
+                                if (double.TryParse(idx["f6"]?.ToString(), out var amt))
+                                    exactTotalAmount += amt;
                             }
+                            overview.TotalAmount = exactTotalAmount / 100000000.0;
                         }
-                        overview.TotalAmount = exactTotalAmount / 100000000.0;
                     }
                 }
                 catch (Exception ex)
@@ -958,46 +964,28 @@ namespace StockTracker
                     overview.TotalAmount = totalAmount / 100000000.0; // fallback
                 }
 
-                // B. 获取板块排行
+                // B. 获取板块排行（完整列表用于个股板块匹配）
                 string sectorUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fields=f3,f14&fs=m:90+t:2+f:!2";
-                var sectorStr = await _httpClient.GetStringAsync(sectorUrl);
-                var sectorObj = JObject.Parse(sectorStr);
-                var sectorDiff = sectorObj["data"]?["diff"] as JArray;
-                if (sectorDiff != null)
+                var sectorStr = await NetworkHelper.HttpGetWithRetryAsync(sectorUrl, 1);
+                if (!string.IsNullOrEmpty(sectorStr))
                 {
-                    var allSectors = sectorDiff.Select(s => new SectorRanking 
-                    { 
-                        Name = s["f14"]?.ToString() ?? "", 
-                        ChangePct = (double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0) / 100.0 // f3放大100倍
-                    }).ToList();
-
-                    overview.TopSectors = allSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
-                    overview.BottomSectors = allSectors.OrderBy(s => s.ChangePct).Take(5).ToList();
-                }
-
-                // C. 获取宏观新闻
-                if (!string.IsNullOrEmpty(tavilyApiKey))
-                {
-                    var newsPayLoad = new { api_key = tavilyApiKey, query = "今日A股市场行情 宏观经济利好利空 行业热点", topic = "news", days = 1, max_results = 8 };
-                    var content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(newsPayLoad), Encoding.UTF8, "application/json");
-                    var newsResp = await _httpClient.PostAsync("https://api.tavily.com/search", content);
-                    if (newsResp.IsSuccessStatusCode)
+                    var sectorObj = JObject.Parse(sectorStr);
+                    var sectorDiff = sectorObj["data"]?["diff"] as JArray;
+                    if (sectorDiff != null)
                     {
-                        var newsJson = await newsResp.Content.ReadAsStringAsync();
-                        var newsObj = JObject.Parse(newsJson);
-                        var results = newsObj["results"] as JArray;
-                        if (results != null)
+                        overview.AllSectors = sectorDiff.Select(s => new SectorRanking
                         {
-                            foreach (var r in results) overview.MarketNews.Add($"- {r["title"]}: {r["content"]}");
-                        }
+                            Name = s["f14"]?.ToString() ?? "",
+                            ChangePct = (double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0) / 100.0
+                        }).ToList();
+
+                        overview.TopSectors = overview.AllSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
+                        overview.BottomSectors = overview.AllSectors.OrderBy(s => s.ChangePct).Take(5).ToList();
                     }
                 }
-                
-                if (overview.MarketNews.Count == 0)
-                {
-                    // Fallback to simple query or placeholder
-                    overview.MarketNews.Add("- 暂无宏观新闻，请关注市场即时动态。");
-                }
+
+                // C. 获取宏观新闻（含降级方案）
+                await FetchMarketNewsAsync(overview, tavilyApiKey);
             }
             catch (Exception ex)
             {
@@ -1005,6 +993,75 @@ namespace StockTracker
             }
 
             return overview;
+        }
+
+        /// <summary>
+        /// 获取市场宏观新闻（Tavily优先，降级到新浪）
+        /// </summary>
+        private static async Task FetchMarketNewsAsync(MarketOverviewData overview, string tavilyApiKey)
+        {
+            // 方案一：Tavily API
+            if (!string.IsNullOrEmpty(tavilyApiKey))
+            {
+                try
+                {
+                    var newsPayLoad = new { api_key = tavilyApiKey, query = "今日A股市场行情 宏观经济利好利空 行业热点", topic = "news", days = 1, max_results = 8 };
+                    var content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(newsPayLoad), Encoding.UTF8, "application/json");
+                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
+                    var newsResp = await _httpClient.PostAsync("https://api.tavily.com/search", content, cts.Token);
+                    if (newsResp.IsSuccessStatusCode)
+                    {
+                        var newsJson = await newsResp.Content.ReadAsStringAsync();
+                        var newsObj = JObject.Parse(newsJson);
+                        var results = newsObj["results"] as JArray;
+                        if (results != null)
+                        {
+                            foreach (var r in results)
+                                overview.MarketNews.Add($"- {r["title"]}: {r["content"]}");
+                        }
+                    }
+                    if (overview.MarketNews.Count > 0) return;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Tavily news fetch failed: {ex.Message}");
+                }
+            }
+
+            // 方案二：降级到新浪财经要闻抓取
+            try
+            {
+                string sinaUrl = "https://finance.sina.com.cn/stock/";
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
+                var html = await _httpClient.GetStringAsync(sinaUrl, cts.Token);
+
+                // 简单提取标题
+                var titleMatches = System.Text.RegularExpressions.Regex.Matches(html, @"<a[^>]*>([^<]{10,80})</a>");
+                int count = 0;
+                foreach (System.Text.RegularExpressions.Match m in titleMatches)
+                {
+                    string title = m.Groups[1].Value.Trim();
+                    if (title.Contains("股市") || title.Contains("A股") || title.Contains("板块") ||
+                        title.Contains("涨停") || title.Contains("跌停") || title.Contains("大盘") ||
+                        title.Contains("成交") || title.Contains("指数"))
+                    {
+                        overview.MarketNews.Add($"- {title}");
+                        count++;
+                        if (count >= 8) break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Sina news fallback failed: {ex.Message}");
+            }
+
+            // 方案三：最终兜底
+            if (overview.MarketNews.Count == 0)
+            {
+                overview.MarketNews.Add("- 暂无宏观新闻数据源，建议关注财联社、同花顺等资讯平台。");
+                overview.MarketNews.Add("- 建议手动查看当日涨停/跌停板块分布。");
+            }
         }
 
         /// <summary>

@@ -406,7 +406,8 @@ namespace StockTracker
         /// </summary>
         public static string BuildMarketReviewPrompt(
             MarketOverviewData overview,
-            List<MarketEnvironmentAnalyzer.MarketIndexData> indices)
+            List<MarketEnvironmentAnalyzer.MarketIndexData> indices,
+            MarketCondition marketCondition = MarketCondition.Neutral)
         {
             var sb = new StringBuilder();
 
@@ -414,7 +415,7 @@ namespace StockTracker
             sb.AppendLine("你是一位资深的宏观策略分析师，擅长从指数走势、市场广度、板块轮动及宏观新闻中洞察市场本质并制定应对策略。");
 
             sb.AppendLine($"\n## 📅 市场数据 ({overview.Date})");
-            
+
             if (indices != null && indices.Count > 0)
             {
                 sb.AppendLine("### 📈 主要指数表现");
@@ -429,6 +430,22 @@ namespace StockTracker
                     };
                     sb.AppendLine($"- {emoji} **{idx.Name}**: {idx.Price:F2} ({idx.PctChange:+0.00;-0.00}%)");
                 }
+            }
+
+            sb.AppendLine($"\n### 🌡️ 市场环境预判");
+            sb.AppendLine($"- **量化评级**: {MarketEnvironmentAnalyzer.GetMarketOperationGuidance(marketCondition)}");
+            // 添加近期对比基准：帮助AI判断今日是极端行情还是普通波动
+            sb.AppendLine($"- **涨跌比**: {overview.UpCount}:{overview.DownCount} (涨{overview.UpCount}家 vs 跌{overview.DownCount}家)");
+            if (overview.UpCount + overview.DownCount > 0)
+            {
+                double upRatio = (double)overview.UpCount / (overview.UpCount + overview.DownCount + overview.FlatCount) * 100;
+                string breadthDesc = upRatio > 70 ? "赚钱效应强" : upRatio > 50 ? "偏暖" : upRatio > 30 ? "结构分化" : "亏钱效应强";
+                sb.AppendLine($"- **赚钱效应**: {upRatio:F1}%个股上涨 ({breadthDesc})");
+            }
+            if (overview.TopSectors.Any() && overview.BottomSectors.Any())
+            {
+                double spread = overview.TopSectors.First().ChangePct - overview.BottomSectors.First().ChangePct;
+                sb.AppendLine($"- **板块分化度**: {spread:F2}% (首位板块涨跌幅差，>5%为高度分化)");
             }
 
             sb.AppendLine("\n### 📊 市场广度与流动性");
