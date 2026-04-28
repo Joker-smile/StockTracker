@@ -416,13 +416,15 @@ public partial class MainWindow : Window
             if (!codeRegex.IsMatch(targetCode) && !fullCodeRegex.IsMatch(targetCode))
             {
                 Dispatcher.UIThread.Post(() => {
-                    var placeholder = this.FindControl<TextBlock>("PlaceholderText");
-                    if (placeholder != null) {
-                        placeholder.Text = $"不合法的股票代码: {targetCode}";
-                        placeholder.Foreground = Brushes.Red;
+                    var titleBlock = this.FindControl<TextBlock>("TitleBlock");
+                    if (titleBlock != null) {
+                        string originalText = titleBlock.Text ?? "StockTracker";
+                        var originalColor = titleBlock.Foreground;
+                        titleBlock.Text = $"不合法的股票代码: {targetCode}";
+                        titleBlock.Foreground = Brushes.Red;
                         Task.Delay(3000).ContinueWith(_ => Dispatcher.UIThread.Post(() => {
-                            placeholder.Text = "右键添加股票";
-                            placeholder.Foreground = Brush.Parse("#FFB0B0B0");
+                            titleBlock.Text = originalText;
+                            titleBlock.Foreground = originalColor;
                         }));
                     }
                 });
@@ -1956,7 +1958,7 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => 
             {
                 resultWindow = new AnalysisResultWindow("AI 大盘分析中", "正在抓取全市场涨跌分布、板块排行及宏观要闻，请稍候...");
-                resultWindow.Show(this);
+                if (this.IsVisible) resultWindow.Show(this); else resultWindow.Show();
             });
         }
 
@@ -1982,8 +1984,9 @@ public partial class MainWindow : Window
             {
                 Dispatcher.UIThread.Post(() => 
                 {
-                    if (resultWindow != null) resultWindow.Close(); 
-                    new AnalysisResultWindow("A 股大盘 AI 复盘诊断", finalReport).Show(this);
+                    if (resultWindow != null) resultWindow.Close();
+                    var reportWin = new AnalysisResultWindow("A 股大盘 AI 复盘诊断", finalReport);
+                    if (this.IsVisible) reportWin.Show(this); else reportWin.Show();
                 });
             }
 
@@ -2019,7 +2022,7 @@ public partial class MainWindow : Window
                 var tip = new AnalysisResultWindow("配置错误",
                     "请先右键选择 [⚙️ 配置设置] 配置 AI API Key。\n" +
                     "支持 Gemini / DeepSeek / 千问 / GLM 等。");
-                tip.Show(this);
+                if (this.IsVisible) tip.Show(this); else tip.Show();
             });
             return;
         }
@@ -2032,7 +2035,7 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => 
             {
                 resultWindow = new AnalysisResultWindow("AI 个股分析中", "正在抓取自选股行情数据并调用 AI 分析接口，请稍候...");
-                resultWindow.Show(this);
+                if (this.IsVisible) resultWindow.Show(this); else resultWindow.Show();
             });
         }
 
@@ -2155,7 +2158,7 @@ public partial class MainWindow : Window
                 {
                     if (resultWindow != null) resultWindow.Close(); 
                     var newWin = new AnalysisResultWindow("AI 个股深度诊断报告", finalReport);
-                    newWin.Show(this);
+                    if (this.IsVisible) newWin.Show(this); else newWin.Show();
                 });
             }
 
@@ -2182,11 +2185,13 @@ public partial class MainWindow : Window
                 }
                 if (!hideUi)
                 {
-                    new AnalysisResultWindow("AI 分析报错", $"发生异常：\n{errMsg}").Show(this);
+                    var errWin = new AnalysisResultWindow("AI 分析报错", $"发生异常：\n{errMsg}");
+                    if (this.IsVisible) errWin.Show(this); else errWin.Show();
                 }
                 else
                 {
-                    new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{errMsg}").Show(this);
+                    var errWin2 = new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{errMsg}");
+                    if (this.IsVisible) errWin2.Show(this); else errWin2.Show();
                 }
             });
         }
