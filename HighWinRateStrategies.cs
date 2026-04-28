@@ -298,7 +298,7 @@ namespace StockTracker
             var stopLoss = new SmartStopLoss();
 
             double currentPrice = ctx.CurrentPrice;
-            double atr = CalculateATR(recentPrices, 14); // 平均真实波幅
+            double atr = CalculateATR(recentPrices, 14, currentPrice); // 平均真实波幅
 
             // 1. 动态止损 (基于ATR + 筹码峰支撑融合)
             double stopLossMultiplier = 2.0;
@@ -359,8 +359,9 @@ namespace StockTracker
         /// <summary>
         /// 计算ATR (平均真实波幅)
         /// </summary>
-        private static double CalculateATR(List<double> prices, int period)
+        private static double CalculateATR(List<double> prices, int period, double currentPrice)
         {
+            if (prices == null || prices.Count == 0) return currentPrice * 0.03; // 默认3%波动
             if (prices.Count < period + 1) return prices[^1] * 0.03; // 默认3%波动
 
             var trueRanges = new List<double>();

@@ -413,6 +413,22 @@ public partial class MainWindow : Window
 
         if (targetCode != null && !_stocks.Contains(targetCode))
         {
+            if (!codeRegex.IsMatch(targetCode) && !fullCodeRegex.IsMatch(targetCode))
+            {
+                Dispatcher.UIThread.Post(() => {
+                    var placeholder = this.FindControl<TextBlock>("PlaceholderText");
+                    if (placeholder != null) {
+                        placeholder.Text = $"不合法的股票代码: {targetCode}";
+                        placeholder.Foreground = Brushes.Red;
+                        Task.Delay(3000).ContinueWith(_ => Dispatcher.UIThread.Post(() => {
+                            placeholder.Text = "右键添加股票";
+                            placeholder.Foreground = Brush.Parse("#FFB0B0B0");
+                        }));
+                    }
+                });
+                return;
+            }
+
             _stocks.Add(targetCode);
             SaveConfig();
             await UpdatePrices();
@@ -2222,7 +2238,7 @@ public partial class MainWindow : Window
                     try
                     {
                         var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
-                        var text = root["candidates"]?[0]?["content"]?["parts"]?[0]?["text"]?.ToString();
+                        var text = root["candidates"]?.FirstOrDefault()?["content"]?["parts"]?.FirstOrDefault()?["text"]?.ToString();
                         if (!string.IsNullOrEmpty(text)) return text;
                         Program.LogError($"Gemini 返回结果为空 [{model}]", new Exception(rawJson));
                         continue;
@@ -2261,7 +2277,7 @@ public partial class MainWindow : Window
                     try
                     {
                         var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
-                        var text = root["choices"]?[0]?["message"]?["content"]?.ToString();
+                        var text = root["choices"]?.FirstOrDefault()?["message"]?["content"]?.ToString();
                         if (!string.IsNullOrEmpty(text)) return text;
                         // 检查错误响应
                         var errMsg = root["error"]?["message"]?.ToString();
