@@ -302,10 +302,16 @@ public partial class MainWindow : Window
         // ─── 新增：AI 分析 & 配置设置 ───
         menu.Items.Add(new Separator());
 
-        var aiItem = new MenuItem { Header = "🔬 AI 分析自选股" };
-        // 手动点击：既要看到界面（hideUi: false），又能触发邮件发送（如果配置了的话）
-        aiItem.Click += async (s, e) => await RunAiStockAnalysisAsync(sendEmail: true, hideUi: false);
-        menu.Items.Add(aiItem);
+        var aiAllItem = new MenuItem { Header = "🔬 AI 分析全部自选股" };
+        aiAllItem.Click += async (s, e) => await RunAiStockAnalysisAsync(sendEmail: true, hideUi: false);
+        menu.Items.Add(aiAllItem);
+
+        if (!string.IsNullOrEmpty(targetCode))
+        {
+            var aiSingleItem = new MenuItem { Header = $"🔍 AI 分析当前个股 [{targetCode}]" };
+            aiSingleItem.Click += async (s, e) => await RunAiSingleStockAnalysisAsync(targetCode, sendEmail: true);
+            menu.Items.Add(aiSingleItem);
+        }
 
         var settingsMenu = new MenuItem { Header = "⚙️ 配置设置" };
 
@@ -2193,6 +2199,154 @@ public partial class MainWindow : Window
                     var errWin2 = new AnalysisResultWindow("定时分析故障提醒", $"后台邮件或AI诊断异常：\n{errMsg}");
                     if (this.IsVisible) errWin2.Show(this); else errWin2.Show();
                 }
+            });
+        }
+        finally
+        {
+            _isAiAnalysisRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// AI 分析单只股票（右键个股时使用）
+    /// </summary>
+    private async Task RunAiSingleStockAnalysisAsync(string stockCode, bool sendEmail)
+    {
+        if (_isAiAnalysisRunning) return;
+
+        if (string.IsNullOrWhiteSpace(_appSettings.ApiKey))
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                var tip = new AnalysisResultWindow("配置错误",
+                    "请先右键选择 [⚙️ 配置设置] 配置 AI API Key。\n" +
+                    "支持 Gemini / DeepSeek / 千问 / GLM 等。");
+                if (this.IsVisible) tip.Show(this); else tip.Show();
+            });
+            return;
+        }
+
+        _isAiAnalysisRunning = true;
+        AnalysisResultWindow? resultWindow = null;
+
+        // 获取股票名称用于弹窗标题
+        var displayItem = _lastDisplayData.FirstOrDefault(d => d.Code != null && d.Code.Contains(stockCode));
+        string stockName = displayItem.Name ?? $"股票{stockCode}";
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            resultWindow = new AnalysisResultWindow($"AI 分析 {stockName}", $"正在获取 {stockName}({stockCode}) 的行情数据并调用 AI 分析，请稍候...");
+            if (this.IsVisible) resultWindow.Show(this); else resultWindow.Show();
+        });
+
+        try
+        {
+            // === 第一步：获取市场环境 ===
+            var marketIndices = await StockDataProvider.FetchMarketIndexAsync();
+            var indexDataList = new List<MarketEnvironmentAnalyzer.MarketIndexData>();
+
+            if (marketIndices != null && marketIndices.Count > 0)
+            {
+                foreach (var idx in marketIndices)
+                {
+                    indexDataList.Add(new MarketEnvironmentAnalyzer.MarketIndexData
+                    {
+                        Name = idx.Name,
+                        Price = idx.Price,
+                        PctChange = idx.PctChange
+                    });
+                }
+            }
+
+            var marketCondition = MarketEnvironmentAnalyzer.AnalyzeMarketCondition(indexDataList);
+
+            // === 第二步：获取板块数据 ===
+            var allSectors = new List<SectorRanking>();
+            try
+            {
+                var overview = await StockDataProvider.FetchMarketOverviewAsync(_appSettings.TavilyApiKey);
+                if (overview != null)
+                {
+                    allSectors = overview.AllSectors ?? new List<SectorRanking>();
+                }
+            }
+            catch { }
+
+            // === 第三步：仅获取目标股票数据并评分 ===
+            var stockScores = new List<ImprovedWinRateScoring.EnhancedStockScore>();
+            var stockDataContexts = new Dictionary<string, StockDeepAnalysisContext>();
+            var dataQualityResults = new Dictionary<string, DataQualityValidator.ValidationResult>();
+            var sectors = new Dictionary<string, string>();
+
+            string sector = displayItem.Sector ?? "未知板块";
+
+            var ctx = await StockDataProvider.FetchDeepDataAsync(stockCode, _appSettings.TavilyApiKey);
+            if (string.IsNullOrEmpty(ctx.Name)) ctx.Name = stockName;
+
+            var (sectorName, sectorPct, sectorRank) = await StockDataProvider.FetchStockSectorAsync(stockCode, allSectors);
+            ctx.SectorName = sectorName;
+            ctx.SectorPctChange = sectorPct;
+            ctx.SectorRankPercent = sectorRank;
+            ctx.RelativeStrengthVsSector = ctx.PctChange - sectorPct;
+
+            stockDataContexts[stockCode] = ctx;
+            sectors[stockCode] = sector;
+
+            var quality = DataQualityValidator.ValidateStockData(ctx);
+            dataQualityResults[stockCode] = quality;
+
+            AdvancedTechnicalIndicators.AnalyzeMultiTimeframeResonance(
+                ctx.TechScore, ctx.TechScore60Min, ctx.TechScore15Min);
+
+            var score = ImprovedWinRateScoring.CalculateEnhancedScore(ctx, marketCondition);
+            stockScores.Add(score);
+
+            ctx.Timing = HighWinRateStrategies.CalculateTimingScore(ctx, ctx.RecentPrices, ctx.RecentVolumes);
+            ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
+
+            // === 第四步：构建 prompt 调用 AI ===
+            var backtestResult = AdviceTracker.CalculateBackTestResults(60);
+
+            string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
+                stockScores,
+                marketCondition,
+                indexDataList,
+                stockDataContexts,
+                dataQualityResults,
+                backtestResult,
+                sectors);
+
+            string aiResponse = await CallAiApiAsync(prompt);
+            string finalReport = $"个股分析 - {stockName}({stockCode})\n分析时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (resultWindow != null) resultWindow.Close();
+                var newWin = new AnalysisResultWindow($"AI 个股诊断 - {stockName}", finalReport);
+                if (this.IsVisible) newWin.Show(this); else newWin.Show();
+            });
+
+            if (sendEmail)
+            {
+                await SendEmailAsync($"[StockTracker] 个股分析 {stockName}({stockCode}) {DateTime.Now:yyyy-MM-dd}", finalReport);
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.LogError($"RunAiSingleStockAnalysisAsync Failure for {stockCode}", ex);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (resultWindow != null) resultWindow.Close();
+                var errMsg = new System.Text.StringBuilder();
+                errMsg.AppendLine(ex.Message);
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    errMsg.AppendLine($"\n原因: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                var errWin = new AnalysisResultWindow("AI 分析报错", $"分析 {stockName} 时发生异常：\n{errMsg}");
+                if (this.IsVisible) errWin.Show(this); else errWin.Show();
             });
         }
         finally
