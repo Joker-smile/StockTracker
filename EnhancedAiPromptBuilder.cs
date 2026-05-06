@@ -98,7 +98,48 @@ namespace StockTracker
                 }
             }
 
-            // === 5. 输出格式要求 ===
+            // === 5. Few-Shot 校准示例 ===
+            sb.AppendLine("\n## 📋 分析校准示例");
+            sb.AppendLine("以下是一个高质量分析的示例，请严格参考此深度和格式：");
+            sb.AppendLine("");
+            sb.AppendLine("## 🎯 贵州茅台 (600519) - ⭐⭐⭐⭐ 推荐");
+            sb.AppendLine("");
+            sb.AppendLine("### 📊 核心决策");
+            sb.AppendLine("- 操作: 谨慎买入 | 仓位: 12% | 综合评分: 72/100");
+            sb.AppendLine("- 买入参考: 1680.50元 (回踩MA20) | 止损: 1613.28元 (跌破MA60+筹码峰支撑)");
+            sb.AppendLine("- 止盈1/2/3: 1764.53/1850.00/1920.00");
+            sb.AppendLine("- 多空方向: 中长期多头趋势中的短期回调企稳");
+            sb.AppendLine("");
+            sb.AppendLine("### ✅ 核心优势");
+            sb.AppendLine("- 🟢 MACD日线零轴上方金叉，60分钟同步走强 (多周期共振)");
+            sb.AppendLine("- 🟢 北向资金连续3日净流入合计8.2亿 (聪明钱抄底)");
+            sb.AppendLine("- 🟢 ROE 32.5% 估值PE 28倍处于近5年20%分位 (基本面+估值双击)");
+            sb.AppendLine("");
+            sb.AppendLine("### ⚠️ 风险警示");
+            sb.AppendLine("- 🔴 上方MA120(1750元)形成压力，距离现价仅4%空间");
+            sb.AppendLine("- 🔴 消费数据疲软，板块整体走弱(-1.2%)拖累个股");
+            sb.AppendLine("");
+            sb.AppendLine("### 🔍 深度分析");
+            sb.AppendLine("- **技术面**: 日线MA5/10/20多头排列，回踩MA20获得支撑，MACD红柱温和放大");
+            sb.AppendLine("- **资金面**: 主力净流入1.2亿(超大单主导)，北向加仓0.15个百分点；散户净流出");
+            sb.AppendLine("- **板块联动**: 白酒板块今日-0.8%，个股相对板块强度+2.1%为板块内龙头");
+            sb.AppendLine("- **多周期**: 日线MACD金叉+60分钟零轴上方金叉+15分钟多头排列 (中等共振)");
+            sb.AppendLine("- **基本面**: PE 28倍处于合理区间，ROE 32%行业顶尖，现金流充裕");
+            sb.AppendLine("- **综合结论**: 白马股回调至均线支撑位，北向资金抄底信号明确，可分批建仓");
+            sb.AppendLine("");
+            sb.AppendLine("### 🔄 反向观点");
+            sb.AppendLine("- 若消费数据持续恶化或外资转为流出，可能跌破MA60(1650元)支撑");
+            sb.AppendLine("- 当前市场共识是\"消费复苏\"，但若三季报不及预期则共识反转风险大");
+            sb.AppendLine("- 对标五粮液PE仅22倍，茅台存在估值溢价收缩风险");
+            sb.AppendLine("");
+            sb.AppendLine("### 📈 情景推演");
+            sb.AppendLine("- **乐观(35%)**: 突破MA120(1750)→挑战前高1850，触发条件: 北向继续加仓+板块走强");
+            sb.AppendLine("- **基准(45%)**: 在1680-1750区间震荡整理，等待均线粘合后选择方向");
+            sb.AppendLine("- **悲观(20%)**: 跌破MA60(1613)→考验前低1550，触发条件: 外资单日流出>3亿或板块大跌");
+            sb.AppendLine("");
+            sb.AppendLine("---");
+
+            // === 6. 输出格式要求（含情景推演+反向观点） ===
             sb.AppendLine("\n## 📝 输出格式要求");
             sb.AppendLine("对**全部自选股**按以下格式逐一输出，**不得遗漏**:");
             sb.AppendLine("");
@@ -111,20 +152,30 @@ namespace StockTracker
             sb.AppendLine("- 多空方向: [一句话判断]");
             sb.AppendLine("");
             sb.AppendLine("### ✅ 核心优势 (2-3条)");
-            sb.AppendLine("- [优势1: 引用具体量化数据]");
+            sb.AppendLine("- [优势1: 引用具体量化数据，如主力资金/北向资金/技术形态]");
             sb.AppendLine("- [优势2]");
             sb.AppendLine("");
             sb.AppendLine("### ⚠️ 风险警示 (2-3条，不可为空)");
-            sb.AppendLine("- [风险1: 引用具体量化数据]");
+            sb.AppendLine("- [风险1: 引用具体量化数据，如解禁/北向流出/顶背离]");
             sb.AppendLine("- [风险2]");
             sb.AppendLine("");
             sb.AppendLine("### 🔍 深度分析");
             sb.AppendLine("- **技术面**: [形态+关键位+背离情况]");
-            sb.AppendLine("- **资金面**: [主力行为+散户行为+筹码结构]");
+            sb.AppendLine("- **资金面**: [主力行为+北向资金+两融+筹码结构]");
             sb.AppendLine("- **板块联动**: [个股vs板块相对强度]");
             sb.AppendLine("- **多周期**: [日线/60分钟/15分钟MACD共振情况]");
-            sb.AppendLine("- **基本面**: [估值与盈利能力]");
+            sb.AppendLine("- **基本面**: [估值+盈利能力+股东人数变化]");
             sb.AppendLine("- **综合结论**: [最明确的建议]");
+            sb.AppendLine("");
+            sb.AppendLine("### 🔄 反向观点");
+            sb.AppendLine("- [如果判断方向错误，最可能的原因是什么]");
+            sb.AppendLine("- [当前市场共识是什么，共识的对立面在哪里]");
+            sb.AppendLine("- [对标同行业龙头，该股的相对优劣势]");
+            sb.AppendLine("");
+            sb.AppendLine("### 📈 情景推演");
+            sb.AppendLine("- **乐观([概率]%)**: [目标位]，[触发条件]");
+            sb.AppendLine("- **基准([概率]%)**: [目标位]，[关键观察点]");
+            sb.AppendLine("- **悲观([概率]%)**: [目标位]，[触发条件/止损位]");
             sb.AppendLine("");
             sb.AppendLine("---");
 
@@ -132,10 +183,14 @@ namespace StockTracker
             sb.AppendLine("\n## 🚨 重要提醒");
             sb.AppendLine("1. **背离优先**: 顶背离出现时即使其他指标好也必须建议减仓；底背离可适当增加关注度");
             sb.AppendLine("2. **主力追踪**: 超大单+大单净流向代表真实主力意图，将中单+小单流向与主力方向对比");
-            sb.AppendLine("3. **量化约束**: 所有支撑/阻力/止损/目标价必须参考提供的量化数据，**禁止凭空编造**");
-            sb.AppendLine("4. **反身性思维**: 当多数指标共振指向同一方向时，反问\"市场是否已经反映了这个信息\"");
-            sb.AppendLine("5. **客观诚实**: 评分低的数据差的，坦诚给出负面诊断，不要为了\"看起来积极\"而粉饰");
-            sb.AppendLine("6. **行情判定**: 当前环境为" + (marketCondition switch
+            sb.AppendLine("3. **北向资金优先**: 北向资金单日净流入>3000万或持股比例持续上升是强信号，大幅流出时必须警示");
+            sb.AppendLine("4. **解禁雷区**: 30天内解禁且比例>5%必须作为高风险标注，禁止推荐买入");
+            sb.AppendLine("5. **筹码结构**: 股东人数持续减少(筹码集中)+北向加仓是最强组合信号之一");
+            sb.AppendLine("6. **融资过热**: 融资买入占比>25%意味着散户情绪过热，是反向指标需警惕");
+            sb.AppendLine("7. **量化约束**: 所有支撑/阻力/止损/目标价必须参考提供的量化数据，**禁止凭空编造**");
+            sb.AppendLine("8. **反身性思维**: 当多数指标共振指向同一方向时，反问\"市场是否已经反映了这个信息\"");
+            sb.AppendLine("9. **客观诚实**: 评分低的数据差的，坦诚给出负面诊断，不要为了\"看起来积极\"而粉饰");
+            sb.AppendLine("10. **行情判定**: 当前环境为" + (marketCondition switch
             {
                 MarketCondition.Crash => "暴跌 - 严格空仓",
                 MarketCondition.Weak => "弱势 - 减少操作，关注抗跌标的",
@@ -255,7 +310,36 @@ namespace StockTracker
                 sb.AppendLine($"- 现金流:{ctx.OperatingCashFlowPerShare:F2}元/股");
                 sb.AppendLine("");
 
-                sb.AppendLine("**🌊 资金面**:");
+                sb.AppendLine("**🌊 资金面(含北向+两融)**:");
+                // 北向资金
+                if (ctx.NorthBoundNetInflow != 0)
+                {
+                    string nbEmoji = ctx.NorthBoundNetInflow >= 0 ? "🟢" : "🔴";
+                    string nbFlow = Math.Abs(ctx.NorthBoundNetInflow) >= 10000
+                        ? $"{ctx.NorthBoundNetInflow / 10000.0:+0.00;-0.00}亿"
+                        : $"{ctx.NorthBoundNetInflow:+0;-0}万";
+                    sb.AppendLine($"- {nbEmoji} 北向资金净流入:{nbFlow} (持股占比{ctx.NorthBoundTotalPosition:F2}%, 变化{ctx.NorthBoundPositionChange:+0.00;-0.00}%)");
+                }
+                if (ctx.MarginBalance > 0)
+                {
+                    sb.AppendLine($"- 融资余额:{ctx.MarginBalance / 10000.0:F2}亿 融券:{ctx.ShortBalance / 10000.0:F2}亿 " +
+                                 $"融资买入占比:{ctx.MarginBuyRatio:F1}% 日变化:{ctx.MarginBalanceChange / 10000.0:+0.00;-0.00}亿");
+                }
+                // 股东人数
+                if (ctx.ShareholderCountLatest > 0)
+                {
+                    string shEmoji = ctx.ShareholderCountChange <= 0 ? "🟢" : "🔴";
+                    sb.AppendLine($"- {shEmoji} 股东人数:{ctx.ShareholderCountLatest:N0} (上期:{ctx.ShareholderCountPrev:N0}) " +
+                                 $"变化:{ctx.ShareholderCountChange:+0.00;-0.00}% 更新:{ctx.ShareholderUpdateDate}");
+                }
+                // 解禁
+                if (ctx.DaysToUnlock <= 365)
+                {
+                    string ulEmoji = ctx.DaysToUnlock > 90 ? "⚪" : (ctx.UnlockRatio > 10 ? "🔴" : "🟡");
+                    sb.AppendLine($"- {ulEmoji} 解禁:{ctx.NearestUnlockDate}({ctx.DaysToUnlock}天后) " +
+                                 $"{ctx.UnlockRatio:F1}% 股数:{ctx.UnlockAmount:F0}万股");
+                }
+
                 // 主力资金分级展示
                 string flowEmoji = ctx.MainForceNetInflow >= 0 ? "🟢" : "🔴";
                 double absFlow = Math.Abs(ctx.MainForceNetInflow);

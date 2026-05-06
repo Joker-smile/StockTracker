@@ -17,26 +17,33 @@ namespace StockTracker
             public DateTime AdviceDate { get; set; }
             public string StockCode { get; set; } = string.Empty;
             public string StockName { get; set; } = string.Empty;
-            public string Action { get; set; } = string.Empty;           // buy/sell/hold
+            public string Action { get; set; } = string.Empty;
             public decimal RecommendedPrice { get; set; }
             public decimal StopLossPrice { get; set; }
             public decimal TargetPrice { get; set; }
-            public double ExpectedWinRate { get; set; }  // 预期胜率
-            public double OverallScore { get; set; }     // 综合评分
-            public double TechnicalScore { get; set; }   // 技术面评分
-            public double FundamentalScore { get; set; } // 基本面评分
-            public double FundFlowScore { get; set; }    // 资金面评分
-            public MarketCondition MarketCondition { get; set; } // 市场环境
+            public double ExpectedWinRate { get; set; }
+            public double OverallScore { get; set; }
+            public double TechnicalScore { get; set; }
+            public double FundamentalScore { get; set; }
+            public double FundFlowScore { get; set; }
+            public MarketCondition MarketCondition { get; set; }
 
-            // 后续验证
-            public decimal? ActualHighestPrice { get; set; }  // 建议后最高价
-            public decimal? ActualLowestPrice { get; set; }   // 建议后最低价
-            public decimal? CurrentPrice { get; set; }        // 当前价格
-            public DateTime? VerifyDate { get; set; }         // 验证日期
-            public bool? WasSuccessful { get; set; }          // 是否成功
-            public decimal? ActualProfitLoss { get; set; }    // 实际盈亏%
-            public string SuccessReason { get; set; } = string.Empty; // 成功/失败原因
-            public int HoldingDays { get; set; }             // 持有天数
+            // 新增5个评分维度（补全9维贝叶斯）
+            public double SentimentScore { get; set; }
+            public double TrendStrengthScore { get; set; }
+            public double ValueScore { get; set; }
+            public double SectorStrengthScore { get; set; }
+            public double MultiTimeframeScore { get; set; }
+            public double DivergenceScore { get; set; }
+
+            public decimal? ActualHighestPrice { get; set; }
+            public decimal? ActualLowestPrice { get; set; }
+            public decimal? CurrentPrice { get; set; }
+            public DateTime? VerifyDate { get; set; }
+            public bool? WasSuccessful { get; set; }
+            public decimal? ActualProfitLoss { get; set; }
+            public string SuccessReason { get; set; } = string.Empty;
+            public int HoldingDays { get; set; }
         }
 
         private static readonly string _trackerFilePath = Path.Combine(AppContext.BaseDirectory, "advice_tracker.json");
@@ -157,7 +164,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 记录性能日志
+        /// 记录性能日志（9维全量）
         /// </summary>
         private static void LogPerformance(AdviceRecord record)
         {
@@ -175,6 +182,12 @@ namespace StockTracker
                     TechnicalScore = record.TechnicalScore,
                     FundamentalScore = record.FundamentalScore,
                     FundFlowScore = record.FundFlowScore,
+                    SentimentScore = record.SentimentScore,
+                    TrendStrengthScore = record.TrendStrengthScore,
+                    ValueScore = record.ValueScore,
+                    SectorStrengthScore = record.SectorStrengthScore,
+                    MultiTimeframeScore = record.MultiTimeframeScore,
+                    DivergenceScore = record.DivergenceScore,
                     MarketCondition = record.MarketCondition.ToString(),
                     ActualProfitLoss = record.ActualProfitLoss,
                     WasSuccessful = record.WasSuccessful,
@@ -418,7 +431,7 @@ namespace StockTracker
         // ====================== 贝叶斯反馈闭环 ======================
 
         /// <summary>
-        /// 贝叶斯权重调整数据结构
+        /// 贝叶斯权重调整数据结构（9维全量）
         /// </summary>
         public class BayesianWeightAdjustments
         {
@@ -427,6 +440,10 @@ namespace StockTracker
             public double FundFlowMultiplier { get; set; } = 1.0;
             public double SentimentMultiplier { get; set; } = 1.0;
             public double TrendMultiplier { get; set; } = 1.0;
+            public double ValueMultiplier { get; set; } = 1.0;
+            public double SectorMultiplier { get; set; } = 1.0;
+            public double MultiTimeframeMultiplier { get; set; } = 1.0;
+            public double DivergenceMultiplier { get; set; } = 1.0;
             public DateTime LastUpdated { get; set; } = DateTime.MinValue;
         }
 
@@ -451,7 +468,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 更新贝叶斯权重（基于历史胜负，调整各维度权重）
+        /// 更新贝叶斯权重（9维全量，基于历史胜负调整各维度权重）
         /// </summary>
         private static void UpdateBayesianWeights()
         {
@@ -459,42 +476,51 @@ namespace StockTracker
             {
                 var records = LoadRecords();
                 var completedRecords = records.Where(r => r.WasSuccessful.HasValue).ToList();
-                if (completedRecords.Count < 10) return; // 至少10笔交易
+                if (completedRecords.Count < 15) return; // 至少15笔交易
 
                 var adjustment = new BayesianWeightAdjustments();
 
-                // 分析成功交易的技术面评分特征
                 var successRecords = completedRecords.Where(r => r.WasSuccessful == true).ToList();
                 var failRecords = completedRecords.Where(r => r.WasSuccessful == false).ToList();
 
                 if (successRecords.Count > 0 && failRecords.Count > 0)
                 {
-                    // 成功交易各维度平均分 vs 失败交易各维度平均分
-                    double successTech = successRecords.Average(r => r.TechnicalScore);
-                    double failTech = failRecords.Average(r => r.TechnicalScore);
-                    double successFund = successRecords.Average(r => r.FundamentalScore);
-                    double failFund = failRecords.Average(r => r.FundamentalScore);
-                    double successFlow = successRecords.Average(r => r.FundFlowScore);
-                    double failFlow = failRecords.Average(r => r.FundFlowScore);
+                    // ===== 9维度区分度分析 =====
+                    var dims = new (string Name, Func<AdviceRecord, double> Scorer, Action<BayesianWeightAdjustments, double> Setter)[]
+                    {
+                        ("技术面", r => r.TechnicalScore, (adj, v) => adj.TechnicalMultiplier = v),
+                        ("基本面", r => r.FundamentalScore, (adj, v) => adj.FundamentalMultiplier = v),
+                        ("资金面", r => r.FundFlowScore, (adj, v) => adj.FundFlowMultiplier = v),
+                        ("情绪面", r => r.SentimentScore, (adj, v) => adj.SentimentMultiplier = v),
+                        ("趋势强度", r => r.TrendStrengthScore, (adj, v) => adj.TrendMultiplier = v),
+                        ("估值", r => r.ValueScore, (adj, v) => adj.ValueMultiplier = v),
+                        ("板块联动", r => r.SectorStrengthScore, (adj, v) => adj.SectorMultiplier = v),
+                        ("多周期共振", r => r.MultiTimeframeScore, (adj, v) => adj.MultiTimeframeMultiplier = v),
+                        ("背离信号", r => r.DivergenceScore, (adj, v) => adj.DivergenceMultiplier = v)
+                    };
 
-                    // 区分度越大，该维度权重越高
-                    // 基础权重 * 区分度系数
-                    double techDiscrimination = Math.Abs(successTech - failTech);
-                    double fundDiscrimination = Math.Abs(successFund - failFund);
-                    double flowDiscrimination = Math.Abs(successFlow - failFlow);
+                    double sAvg, fAvg, disc;
+                    var discriminations = new List<double>();
+                    var discMap = new Dictionary<string, double>();
 
-                    // 归一化区分度并映射到1±0.3
-                    double maxDisc = Math.Max(techDiscrimination, Math.Max(fundDiscrimination, flowDiscrimination));
-                    maxDisc = Math.Max(maxDisc, 1);
+                    foreach (var (name, scorer, setter) in dims)
+                    {
+                        sAvg = successRecords.Average(scorer);
+                        fAvg = failRecords.Average(scorer);
+                        disc = Math.Abs(sAvg - fAvg);
+                        discriminations.Add(disc);
+                        discMap[name] = disc;
+                    }
 
-                    adjustment.TechnicalMultiplier = 1.0 + (techDiscrimination / maxDisc - 0.33) * 0.6;
-                    adjustment.FundamentalMultiplier = 1.0 + (fundDiscrimination / maxDisc - 0.33) * 0.6;
-                    adjustment.FundFlowMultiplier = 1.0 + (flowDiscrimination / maxDisc - 0.33) * 0.6;
+                    double maxDisc = Math.Max(discriminations.Max(), 1.0);
 
-                    // 限制范围
-                    adjustment.TechnicalMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.TechnicalMultiplier));
-                    adjustment.FundamentalMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.FundamentalMultiplier));
-                    adjustment.FundFlowMultiplier = Math.Max(0.7, Math.Min(1.3, adjustment.FundFlowMultiplier));
+                    foreach (var (name, _, setter) in dims)
+                    {
+                        double dimDisc = discMap[name];
+                        double multiplier = 1.0 + (dimDisc / maxDisc - 0.33) * 0.6;
+                        multiplier = Math.Max(0.7, Math.Min(1.3, multiplier));
+                        setter(adjustment, multiplier);
+                    }
                 }
 
                 adjustment.LastUpdated = DateTime.Now;
@@ -539,7 +565,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 按维度分析回测胜率（用于AI Prompt优化）
+        /// 按维度分析回测胜率（9维全量，用于AI Prompt优化）
         /// </summary>
         public static string GetDimensionPerformanceAnalysis()
         {
@@ -554,10 +580,17 @@ namespace StockTracker
             sb.AppendLine("| 维度 | 成功组均分 | 失败组均分 | 区分度 | 建议权重 |");
             sb.AppendLine("|------|-----------|-----------|--------|---------|");
 
-            var dims = new[] {
-                ("技术面", (Func<AdviceRecord,double>)(r => r.TechnicalScore)),
+            var dims = new (string Name, Func<AdviceRecord, double> Scorer)[]
+            {
+                ("技术面", r => r.TechnicalScore),
                 ("基本面", r => r.FundamentalScore),
-                ("资金面", r => r.FundFlowScore)
+                ("资金面", r => r.FundFlowScore),
+                ("情绪面", r => r.SentimentScore),
+                ("趋势强度", r => r.TrendStrengthScore),
+                ("估值", r => r.ValueScore),
+                ("板块联动", r => r.SectorStrengthScore),
+                ("多周期共振", r => r.MultiTimeframeScore),
+                ("背离信号", r => r.DivergenceScore)
             };
 
             foreach (var (name, scorer) in dims)

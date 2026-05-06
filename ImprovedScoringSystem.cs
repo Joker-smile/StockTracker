@@ -311,6 +311,46 @@ namespace StockTracker
             if (ctx.TurnoverRate > 5 && ctx.TurnoverRate < 15 && ctx.VolumeRatio > 1.2) score += 15;
             else if (ctx.TurnoverRate > 3 && ctx.TurnoverRate < 20) score += 8;
 
+            // === 4. 北向资金评分 (+15分) ===
+            if (ctx.NorthBoundNetInflow > 1000)
+                score += 15;  // 北向净买入 >1000万
+            else if (ctx.NorthBoundNetInflow > 0)
+                score += 8;
+            else if (ctx.NorthBoundNetInflow < -1000)
+                score -= 12;
+
+            if (ctx.NorthBoundPositionChange > 0.5)
+                score += 10;  // 北向持股比例大幅上升
+            else if (ctx.NorthBoundPositionChange > 0.1)
+                score += 5;
+            else if (ctx.NorthBoundPositionChange < -0.3)
+                score -= 10;
+
+            // === 5. 融资融券评分 (+10分) ===
+            if (ctx.MarginBuyRatio > 0 && ctx.MarginBuyRatio < 15)
+                score += 8;  // 合理融资买入
+            else if (ctx.MarginBuyRatio >= 15 && ctx.MarginBuyRatio < 25)
+                score += 3;  // 偏高但可接受
+            else if (ctx.MarginBuyRatio >= 25)
+                score -= 12; // 融资过热(散户情绪顶点)
+            else if (ctx.MarginBuyRatio < 0)
+                score -= 5;
+
+            if (ctx.MarginBalanceChange > 0 && ctx.MarginBalanceChange < 5000)
+                score += 5;  // 融资温和增加
+            else if (ctx.MarginBalanceChange > 10000)
+                score -= 8;  // 融资大幅增加(过热信号)
+
+            // === 6. 股东人数变化评分 (+5分) ===
+            if (ctx.ShareholderCountChange < -5)
+                score += 10;  // 筹码大幅集中(利好)
+            else if (ctx.ShareholderCountChange < -2)
+                score += 5;   // 筹码集中
+            else if (ctx.ShareholderCountChange > 5)
+                score -= 8;   // 筹码大幅分散(利空)
+            else if (ctx.ShareholderCountChange > 2)
+                score -= 3;
+
             return Math.Max(0, Math.Min(100, score));
         }
 
@@ -536,6 +576,30 @@ namespace StockTracker
             if (ctx.SectorPctChange < -3) score -= 15;
             if (ctx.RelativeStrengthVsSector < -3) score -= 10;
 
+            // 解禁风险
+            if (ctx.DaysToUnlock <= 30 && ctx.UnlockRatio > 5)
+                score -= 35; // 30天内解禁且比例>5% → 高风险
+            else if (ctx.DaysToUnlock <= 60 && ctx.UnlockRatio > 10)
+                score -= 25;
+            else if (ctx.DaysToUnlock <= 90 && ctx.UnlockRatio > 15)
+                score -= 15;
+
+            // 北向资金大幅流出风险
+            if (ctx.NorthBoundNetInflow < -3000)
+                score -= 20;
+            if (ctx.NorthBoundPositionChange < -1)
+                score -= 15;
+
+            // 融资过热风险
+            if (ctx.MarginBuyRatio > 25)
+                score -= 20;
+            if (ctx.MarginBalanceChange > 20000)
+                score -= 15;
+
+            // 股东人数激增(筹码分散)
+            if (ctx.ShareholderCountChange > 10)
+                score -= 20;
+
             return Math.Max(0, score);
         }
 
@@ -611,13 +675,19 @@ namespace StockTracker
                 trendWeight -= 0.05;
             }
 
-            // 应用贝叶斯反馈（如果有历史数据）
+            // 应用贝叶斯反馈（9维全量）
             var bayesAdj = AdviceTracker.GetBayesianWeightAdjustments();
             if (bayesAdj != null)
             {
                 technicalWeight *= bayesAdj.TechnicalMultiplier;
                 fundamentalWeight *= bayesAdj.FundamentalMultiplier;
                 fundFlowWeight *= bayesAdj.FundFlowMultiplier;
+                sentimentWeight *= bayesAdj.SentimentMultiplier;
+                trendWeight *= bayesAdj.TrendMultiplier;
+                valueWeight *= bayesAdj.ValueMultiplier;
+                sectorWeight *= bayesAdj.SectorMultiplier;
+                multiTimeframeWeight *= bayesAdj.MultiTimeframeMultiplier;
+                divergenceWeight *= bayesAdj.DivergenceMultiplier;
             }
 
             // 权重归一化
@@ -945,6 +1015,21 @@ namespace StockTracker
             if (ctx.SectorPctChange > 2)
                 score.PositiveSignals.Add($"✅ 板块强势({ctx.SectorPctChange:F1}%)");
 
+            // 北向资金积极信号
+            if (ctx.NorthBoundNetInflow > 1000)
+            {
+                string nbFlow = ctx.NorthBoundNetInflow >= 10000 ? $"{ctx.NorthBoundNetInflow / 10000:F2}亿" : $"{ctx.NorthBoundNetInflow:F0}万";
+                score.PositiveSignals.Add($"✅ 北向资金净买入{nbFlow}");
+            }
+            if (ctx.NorthBoundPositionChange > 0.5)
+                score.PositiveSignals.Add($"✅ 北向持股占比+{ctx.NorthBoundPositionChange:F2}%");
+
+            // 筹码集中积极信号
+            if (ctx.ShareholderCountChange < -5)
+                score.PositiveSignals.Add($"✅ 股东人数减少{Math.Abs(ctx.ShareholderCountChange):F1}%(筹码大幅集中)");
+            else if (ctx.ShareholderCountChange < -2)
+                score.PositiveSignals.Add($"✅ 股东人数减少{Math.Abs(ctx.ShareholderCountChange):F1}%(筹码集中)");
+
             // 新闻情绪
             if (ctx.NewsSentimentScore > 65)
                 score.PositiveSignals.Add($"✅ 新闻情绪积极({ctx.NewsSentimentScore:F0}/100)");
@@ -986,6 +1071,31 @@ namespace StockTracker
             // 波动率风险
             if (ctx.VolatilityPercentile > 85)
                 score.RiskSignals.Add($"⚠️ 波动率历史高位({ctx.VolatilityPercentile:F0}%)");
+
+            // 北向资金风险
+            if (ctx.NorthBoundNetInflow < -1000)
+            {
+                string nbOut = Math.Abs(ctx.NorthBoundNetInflow) >= 10000 ? $"{Math.Abs(ctx.NorthBoundNetInflow) / 10000:F2}亿" : $"{Math.Abs(ctx.NorthBoundNetInflow):F0}万";
+                score.RiskSignals.Add($"🔴 北向资金净流出{nbOut}");
+            }
+            if (ctx.NorthBoundPositionChange < -0.5)
+                score.RiskSignals.Add($"🔴 北向持股比例下降{Math.Abs(ctx.NorthBoundPositionChange):F2}%");
+
+            // 解禁风险
+            if (ctx.DaysToUnlock <= 30 && ctx.UnlockRatio > 5)
+                score.RiskSignals.Add($"🔴 {ctx.DaysToUnlock}天后解禁{ctx.UnlockRatio:F1}%(重大利空)");
+            else if (ctx.DaysToUnlock <= 60 && ctx.UnlockRatio > 10)
+                score.RiskSignals.Add($"⚠️ {ctx.DaysToUnlock}天后解禁{ctx.UnlockRatio:F1}%");
+
+            // 融资过热风险
+            if (ctx.MarginBuyRatio > 25)
+                score.RiskSignals.Add($"⚠️ 融资买入占比过高({ctx.MarginBuyRatio:F1}%,散户情绪过热)");
+
+            // 筹码分散风险
+            if (ctx.ShareholderCountChange > 10)
+                score.RiskSignals.Add($"🔴 股东人数暴增{ctx.ShareholderCountChange:F1}%(筹码急剧分散)");
+            else if (ctx.ShareholderCountChange > 5)
+                score.RiskSignals.Add($"⚠️ 股东人数增加{ctx.ShareholderCountChange:F1}%(筹码分散)");
 
             // 新闻风险
             if (ctx.NewsSentimentScore < 35)

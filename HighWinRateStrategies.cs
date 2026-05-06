@@ -26,7 +26,7 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 组合优化建议
+        /// 组合优化建议（增强版：行业相关性 + 集中度风控）
         /// </summary>
         public class PortfolioOptimization
         {
@@ -34,8 +34,9 @@ namespace StockTracker
             {
                 public string StockCode { get; set; } = string.Empty;
                 public string StockName { get; set; } = string.Empty;
-                public double OptimalPosition { get; set; }     // 最优仓位比例
-                public double CorrelationRisk { get; set; }     // 相关性风险
+                public string Sector { get; set; } = string.Empty;        // 所属行业
+                public double OptimalPosition { get; set; }              // 最优仓位比例
+                public double CorrelationRisk { get; set; }              // 相关性风险
                 public string AllocationReason { get; set; } = string.Empty;
             }
 
@@ -43,7 +44,53 @@ namespace StockTracker
             public double TotalExpectedReturn { get; set; }
             public double PortfolioRisk { get; set; }
             public double SharpeRatio { get; set; }
+            public double MaxDrawdownWarning { get; set; }               // 最大回撤预警线
+            public List<string> RiskWarnings { get; set; } = new();      // 组合级风险警告
             public string OptimizationStrategy { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// 组合风险监控器 - 追踪最大回撤与集中度风险
+        /// </summary>
+        public class PortfolioRiskMonitor
+        {
+            public double InitialEquity { get; set; }                    // 初始资产
+            public double CurrentEquity { get; set; }                    // 当前资产
+            public double PeakEquity { get; set; }                       // 历史峰值
+            public double CurrentDrawdown { get; set; }                  // 当前回撤(%)
+            public double MaxDrawdown { get; set; }                      // 历史最大回撤(%)
+            public DateTime LastUpdate { get; set; }
+            public List<string> Alerts { get; set; } = new();            // 风控告警
+
+            public void UpdateEquity(double equity)
+            {
+                CurrentEquity = equity;
+                if (equity > PeakEquity)
+                {
+                    PeakEquity = equity;
+                    CurrentDrawdown = 0;
+                }
+                else
+                {
+                    CurrentDrawdown = (PeakEquity - equity) / PeakEquity * 100;
+                    MaxDrawdown = Math.Max(MaxDrawdown, CurrentDrawdown);
+                }
+
+                // 预警触发
+                if (CurrentDrawdown > 15 && CurrentDrawdown <= 20)
+                    Alerts.Add($"⚠️ 回撤{CurrentDrawdown:F1}% > 15%，建议减仓防御");
+                else if (CurrentDrawdown > 20)
+                    Alerts.Add($"🔴 回撤{CurrentDrawdown:F1}% > 20%，强烈建议减仓至半仓以下");
+                else if (CurrentDrawdown > 10)
+                    Alerts.Add($"🟡 回撤{CurrentDrawdown:F1}% > 10%，关注风险敞口");
+
+                LastUpdate = DateTime.Now;
+            }
+
+            public string GetDrawdownReport()
+            {
+                return $"当前回撤: {CurrentDrawdown:F1}% | 最大回撤: {MaxDrawdown:F1}% | 告警数: {Alerts.Count}";
+            }
         }
 
         /// <summary>
@@ -440,19 +487,21 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 组合优化建议
+        /// 组合优化建议（增强版：行业相关性 + 板块集中度 + 回撤预警）
         /// </summary>
         public static PortfolioOptimization OptimizePortfolio(
             List<ImprovedWinRateScoring.EnhancedStockScore> scores,
-            MarketCondition marketCondition)
+            MarketCondition marketCondition,
+            Dictionary<string, string>? stockSectors = null,
+            PortfolioRiskMonitor? riskMonitor = null)
         {
             var optimization = new PortfolioOptimization();
 
             // 筛选高质量股票
             var highQualityStocks = scores
-                .Where(s => s.OverallScore >= 70 && s.ConfidenceLevel >= 50)
+                .Where(s => s.OverallScore >= 65 && s.ConfidenceLevel >= 45)
                 .OrderByDescending(s => s.OverallScore)
-                .Take(5) // 最多选择5只股票
+                .Take(5)
                 .ToList();
 
             if (highQualityStocks.Count == 0)
@@ -461,32 +510,87 @@ namespace StockTracker
                 return optimization;
             }
 
-            // 计算最优仓位分配
-            double totalWeight = 0;
+            // === 行业集中度分析（基于板块分组） ===
+            var sectorGroups = new Dictionary<string, List<ImprovedWinRateScoring.EnhancedStockScore>>();
+            foreach (var stock in highQualityStocks)
+            {
+                string sector = stockSectors?.ContainsKey(stock.StockCode) == true
+                    ? stockSectors[stock.StockCode] : "未知";
+                if (!sectorGroups.ContainsKey(sector))
+                    sectorGroups[sector] = new List<ImprovedWinRateScoring.EnhancedStockScore>();
+                sectorGroups[sector].Add(stock);
+            }
+
+            // 单行业仓位上限：普通25%，强势市场30%，弱势市场20%
+            double maxSectorWeight = marketCondition switch
+            {
+                MarketCondition.Strong => 0.30,
+                MarketCondition.Weak => 0.20,
+                MarketCondition.Crash => 0.0,
+                _ => 0.25
+            };
+
+            // 总仓位上限
+            double maxTotalWeight = marketCondition switch
+            {
+                MarketCondition.Strong => 0.85,
+                MarketCondition.Neutral => 0.70,
+                MarketCondition.Weak => 0.50,
+                MarketCondition.Crash => 0.0,
+                _ => 0.60
+            };
+
+            // 分配仓位：评分加权，受行业集中度约束
             double totalScore = highQualityStocks.Sum(s => s.OverallScore);
+            var sectorUsedWeights = new Dictionary<string, double>();
 
             foreach (var stock in highQualityStocks)
             {
-                double weight = stock.OverallScore / totalScore;
-                double adjustedWeight = weight * 0.8; // 总仓位80%，留20%现金
+                string sector = stockSectors?.ContainsKey(stock.StockCode) == true
+                    ? stockSectors[stock.StockCode] : "未知";
+                if (!sectorUsedWeights.ContainsKey(sector))
+                    sectorUsedWeights[sector] = 0;
+
+                // 评分权重
+                double weight = stock.OverallScore / totalScore * maxTotalWeight;
+
+                // 行业集中度约束
+                double remainingSectorBudget = maxSectorWeight - sectorUsedWeights[sector];
+                if (weight > remainingSectorBudget)
+                    weight = Math.Max(0, remainingSectorBudget);
+
+                // 个股单一仓位上限（不超过15%）
+                weight = Math.Min(weight, 0.15);
+
+                sectorUsedWeights[sector] += weight;
 
                 var allocation = new PortfolioOptimization.StockAllocation
                 {
                     StockCode = stock.StockCode,
                     StockName = stock.StockName,
-                    OptimalPosition = adjustedWeight * 100,
-                    CorrelationRisk = CalculateCorrelationRisk(stock),
+                    Sector = sector,
+                    OptimalPosition = weight * 100,
+                    CorrelationRisk = CalculateCorrelationRisk(stock, sector, sectorGroups),
                     AllocationReason = GenerateAllocationReason(stock, marketCondition)
                 };
 
                 optimization.Allocations.Add(allocation);
-                totalWeight += adjustedWeight;
             }
 
             // 计算组合预期收益和风险
             optimization.TotalExpectedReturn = highQualityStocks.Average(s => s.WinProbability);
-            optimization.PortfolioRisk = CalculatePortfolioRisk(highQualityStocks);
+            optimization.PortfolioRisk = CalculatePortfolioRisk(highQualityStocks, sectorGroups);
             optimization.SharpeRatio = CalculateSharpeRatio(optimization);
+
+            // === 最大回撤预警 ===
+            if (riskMonitor != null)
+            {
+                optimization.MaxDrawdownWarning = riskMonitor.MaxDrawdown;
+                optimization.RiskWarnings.AddRange(riskMonitor.Alerts);
+            }
+
+            // 组合级风险警告
+            optimization.RiskWarnings.AddRange(GeneratePortfolioRiskWarnings(optimization, marketCondition, sectorGroups));
 
             // 生成优化策略
             optimization.OptimizationStrategy = GenerateOptimizationStrategy(optimization, marketCondition);
@@ -495,19 +599,67 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 计算相关性风险
+        /// 计算相关性风险（基于行业 + 评分）
         /// </summary>
-        private static double CalculateCorrelationRisk(ImprovedWinRateScoring.EnhancedStockScore stock)
+        private static double CalculateCorrelationRisk(
+            ImprovedWinRateScoring.EnhancedStockScore stock,
+            string sector,
+            Dictionary<string, List<ImprovedWinRateScoring.EnhancedStockScore>> sectorGroups)
         {
-            // 简化版相关性风险评估
             double risk = 50;
 
-            // 根据市值、行业等因素调整
-            if (stock.FundFlowScore > 80) risk -= 10; // 资金流向好降低相关性风险
-            if (stock.TechnicalScore > 80) risk -= 10; // 技术面好降低相关性风险
-            if (stock.RiskScore < 50) risk += 20; // 风险高增加相关性风险
+            // 同行业股票越多 → 相关性风险越高
+            if (sectorGroups.ContainsKey(sector) && sectorGroups[sector].Count > 1)
+                risk += 15 * (sectorGroups[sector].Count - 1);
 
-            return Math.Max(0, Math.Min(100, risk));
+            // 评分因子
+            if (stock.FundFlowScore > 80) risk -= 10;
+            if (stock.TechnicalScore > 80) risk -= 10;
+            if (stock.RiskScore < 50) risk += 20;
+
+            // 北向资金持股高 → 与外资同向波动风险
+            risk = Math.Max(0, Math.Min(100, risk));
+            return risk;
+        }
+
+        /// <summary>
+        /// 生成组合级风险警告
+        /// </summary>
+        private static List<string> GeneratePortfolioRiskWarnings(
+            PortfolioOptimization optimization,
+            MarketCondition marketCondition,
+            Dictionary<string, List<ImprovedWinRateScoring.EnhancedStockScore>> sectorGroups)
+        {
+            var warnings = new List<string>();
+
+            // 行业集中度过高
+            foreach (var kvp in sectorGroups)
+            {
+                double sectorTotalWeight = optimization.Allocations
+                    .Where(a => a.Sector == kvp.Key)
+                    .Sum(a => a.OptimalPosition);
+                if (sectorTotalWeight > 25)
+                    warnings.Add($"⚠️ {kvp.Key}板块总仓位{sectorTotalWeight:F1}% > 25%，集中度偏高");
+            }
+
+            // 组合整体敞口
+            double totalPos = optimization.Allocations.Sum(a => a.OptimalPosition);
+            if (totalPos > 80)
+                warnings.Add($"⚠️ 组合总仓位{totalPos:F1}% > 80%，风险敞口偏大");
+            else if (totalPos < 20)
+                warnings.Add($"🟡 组合总仓位{totalPos:F1}% < 20%，过于保守");
+
+            // 市场环境匹配
+            if (marketCondition == MarketCondition.Weak && totalPos > 50)
+                warnings.Add("🔴 弱势市场总仓位>50%，建议降低至半仓以下");
+            else if (marketCondition == MarketCondition.Strong && totalPos < 30)
+                warnings.Add("🟡 强势市场仓位不足30%，可适当增加敞口");
+
+            // 回撤预警
+            if (optimization.MaxDrawdownWarning > 15)
+                warnings.Add($"🔴 最大回撤{optimization.MaxDrawdownWarning:F1}% > 15%，建议全面风控审查");
+
+            return warnings;
         }
 
         /// <summary>
@@ -537,13 +689,24 @@ namespace StockTracker
         }
 
         /// <summary>
-        /// 计算组合风险
+        /// 计算组合风险（综合行业集中度+评分）
         /// </summary>
-        private static double CalculatePortfolioRisk(List<ImprovedWinRateScoring.EnhancedStockScore> stocks)
+        private static double CalculatePortfolioRisk(
+            List<ImprovedWinRateScoring.EnhancedStockScore> stocks,
+            Dictionary<string, List<ImprovedWinRateScoring.EnhancedStockScore>> sectorGroups)
         {
-            // 简化版组合风险计算
             double avgRiskScore = stocks.Average(s => s.RiskScore);
-            return 100 - avgRiskScore; // 风险评分越高，组合风险越低
+            double sectorConcentrationPenalty = 0;
+
+            // 行业集中度惩罚
+            foreach (var kvp in sectorGroups)
+            {
+                double sectorWeight = (double)kvp.Value.Count / stocks.Count;
+                if (sectorWeight > 0.4)
+                    sectorConcentrationPenalty += (sectorWeight - 0.4) * 50;
+            }
+
+            return Math.Max(0, Math.Min(100, 100 - avgRiskScore + sectorConcentrationPenalty));
         }
 
         /// <summary>
@@ -551,13 +714,11 @@ namespace StockTracker
         /// </summary>
         private static double CalculateSharpeRatio(PortfolioOptimization optimization)
         {
-            // 简化版夏普比率计算
             double expectedReturn = optimization.TotalExpectedReturn;
             double portfolioRisk = optimization.PortfolioRisk;
 
             if (portfolioRisk == 0) return 0;
 
-            // 假设无风险收益率为3%
             double riskFreeRate = 3.0;
             return (expectedReturn - riskFreeRate) / portfolioRisk;
         }
@@ -575,13 +736,35 @@ namespace StockTracker
             strategy.AppendLine($"总仓位建议: {(optimization.Allocations.Sum(a => a.OptimalPosition)):F1}%");
             strategy.AppendLine($"预期胜率: {optimization.TotalExpectedReturn:F1}%");
             strategy.AppendLine($"夏普比率: {optimization.SharpeRatio:F2}");
+            strategy.AppendLine($"组合风险评分: {optimization.PortfolioRisk:F1}/100 (越低越安全)");
+
+            if (optimization.MaxDrawdownWarning > 0)
+                strategy.AppendLine($"最大回撤记录: {optimization.MaxDrawdownWarning:F1}%");
+
             strategy.AppendLine();
 
-            strategy.AppendLine("分仓建议:");
-            foreach (var allocation in optimization.Allocations)
+            // 仓位分配
+            strategy.AppendLine("**分仓建议 (含行业集中度控制)**");
+            var sectorGroups = optimization.Allocations.GroupBy(a => a.Sector);
+            foreach (var group in sectorGroups)
             {
-                strategy.AppendLine($"- {allocation.StockName}: {allocation.OptimalPosition:F1}% " +
-                                   $"({allocation.AllocationReason})");
+                string sectorWeight = group.Sum(a => a.OptimalPosition).ToString("F1");
+                strategy.AppendLine($"- 📂 **{group.Key}** (总仓位 {sectorWeight}%):");
+                foreach (var allocation in group)
+                {
+                    strategy.AppendLine($"  - {allocation.StockName}({allocation.StockCode}): {allocation.OptimalPosition:F1}% " +
+                                       $"({allocation.AllocationReason})");
+                }
+            }
+
+            // 组合风险警告
+            if (optimization.RiskWarnings.Count > 0)
+            {
+                strategy.AppendLine("\n**⚠️ 组合风险警告**");
+                foreach (var warning in optimization.RiskWarnings)
+                {
+                    strategy.AppendLine($"  {warning}");
+                }
             }
 
             if (marketCondition == MarketCondition.Crash)

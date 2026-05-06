@@ -105,6 +105,29 @@ namespace StockTracker
         public bool HasBearishDivergence { get; set; } // 顶背离
         public bool HasBullishDivergence { get; set; } // 底背离
         public string DivergenceDetail { get; set; } = string.Empty; // 背离详情
+
+        // === 新增 P0：北向资金数据 ===
+        public double NorthBoundNetInflow { get; set; }        // 北向资金当日净流入(万元)
+        public double NorthBoundPositionChange { get; set; }   // 北向持股比例变化(百分点)
+        public double NorthBoundTotalPosition { get; set; }    // 北向持股占总股本比例
+
+        // === 新增 P0：融资融券数据 ===
+        public double MarginBalance { get; set; }              // 融资余额(万元)
+        public double ShortBalance { get; set; }               // 融券余额(万元)
+        public double MarginBuyRatio { get; set; }             // 融资买入占比(%)
+        public double MarginBalanceChange { get; set; }        // 融资余额日变化(万元)
+
+        // === 新增 P1：股东人数变化 ===
+        public double ShareholderCountChange { get; set; }     // 股东人数变化率(%)(负值=筹码集中)
+        public int ShareholderCountLatest { get; set; }        // 最新股东人数
+        public int ShareholderCountPrev { get; set; }          // 上期股东人数
+        public string ShareholderUpdateDate { get; set; } = string.Empty;
+
+        // === 新增 P1：限售股解禁数据 ===
+        public string NearestUnlockDate { get; set; } = string.Empty;  // 最近解禁日期
+        public double UnlockRatio { get; set; }                        // 解禁占流通股本比例(%)
+        public double UnlockAmount { get; set; }                       // 解禁股数(万股)
+        public int DaysToUnlock { get; set; } = 999;                   // 距解禁天数
     }
 
     public class MarketOverviewData
@@ -193,14 +216,18 @@ namespace StockTracker
             RotateUserAgent(); // 反爬混淆
             var context = new StockDeepAnalysisContext { Code = code };
             
-            // 并发获取三大维度数据
+            // 并发获取全维度数据
             var tencentTask = FetchTencentRealtimeAsync(code, context);
             var klineTask = FetchEastMoneyKlinesAsync(code, context);
             var newsTask = FetchTavilyNewsAsync(code, context, tavilyApiKey);
             var flowTask = FetchMainForceFlowAsync(code, context);
             var reportTask = FetchFinancialReportAsync(code, context);
+            var northTask = FetchNorthBoundFlowAsync(code, context);
+            var marginTask = FetchMarginDataAsync(code, context);
+            var shareholderTask = FetchShareholderDataAsync(code, context);
+            var unlockTask = FetchUnlockDataAsync(code, context);
 
-            await Task.WhenAll(tencentTask, klineTask, newsTask, flowTask, reportTask);
+            await Task.WhenAll(tencentTask, klineTask, newsTask, flowTask, reportTask, northTask, marginTask, shareholderTask, unlockTask);
             return context;
         }
 
@@ -805,6 +832,143 @@ namespace StockTracker
                  {
                      System.Diagnostics.Debug.WriteLine($"Financial fallback also failed: {fbEx.Message}");
                  }
+            }
+        }
+
+        /// <summary>
+        /// 获取北向资金流入数据（从东方财富）
+        /// </summary>
+        private static async Task FetchNorthBoundFlowAsync(string code, StockDeepAnalysisContext context)
+        {
+            try
+            {
+                string market = GetEastMoneyMarketPrefix(code);
+                // 东财北向持股接口: f52=北向持股量(股), f53=北向持股占流通股比(%), f55=北向当日净买入(万元)
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f51,f52,f53,f54,f55,f56,f57,f58";
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
+                var jsonObj = JObject.Parse(jsonStr);
+                var data = jsonObj["data"];
+                if (data != null && data.Type != JTokenType.Null)
+                {
+                    // f55 = 北向当日净买入(万元)
+                    if (double.TryParse(data["f55"]?.ToString(), out double netInflow))
+                        context.NorthBoundNetInflow = netInflow;
+                    // f53 = 北向持股占流通股比例
+                    if (double.TryParse(data["f53"]?.ToString(), out double positionRatio))
+                        context.NorthBoundTotalPosition = positionRatio;
+                    // f57/f58 可用于计算变化量
+                    if (double.TryParse(data["f52"]?.ToString(), out double currShares))
+                    {
+                        // 尝试获取上一期持股量 (f54 = 上期持股)
+                        if (double.TryParse(data["f54"]?.ToString(), out double prevShares) && prevShares > 0)
+                            context.NorthBoundPositionChange = (currShares - prevShares) / prevShares * 100;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"NorthBound fetch failed for {code}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取融资融券数据（从东方财富）
+        /// </summary>
+        private static async Task FetchMarginDataAsync(string code, StockDeepAnalysisContext context)
+        {
+            try
+            {
+                string market = GetEastMoneyMarketPrefix(code);
+                // 东财融资融券接口
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f164,f165,f166,f167,f168,f169,f170";
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
+                var jsonObj = JObject.Parse(jsonStr);
+                var data = jsonObj["data"];
+                if (data != null && data.Type != JTokenType.Null)
+                {
+                    // f164=融资余额, f165=融资买入额, f166=融资偿还额, f167=融券余额
+                    // f168=融券卖出量, f169=融资余额变化, f170=融券余额变化
+                    if (double.TryParse(data["f164"]?.ToString(), out double marginBal))
+                        context.MarginBalance = marginBal;
+                    if (double.TryParse(data["f167"]?.ToString(), out double shortBal))
+                        context.ShortBalance = shortBal;
+                    if (double.TryParse(data["f169"]?.ToString(), out double marginChg))
+                        context.MarginBalanceChange = marginChg;
+                    if (double.TryParse(data["f165"]?.ToString(), out double marginBuy) &&
+                        context.TurnoverAmount > 0)
+                        context.MarginBuyRatio = marginBuy / context.TurnoverAmount * 100;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Margin fetch failed for {code}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取股东人数变化数据（从东方财富）
+        /// </summary>
+        private static async Task FetchShareholderDataAsync(string code, StockDeepAnalysisContext context)
+        {
+            try
+            {
+                string market = GetEastMoneyMarketPrefix(code);
+                // 东财股东人数接口
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f100,f108,f109,f110,f111";
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
+                var jsonObj = JObject.Parse(jsonStr);
+                var data = jsonObj["data"];
+                if (data != null && data.Type != JTokenType.Null)
+                {
+                    // f108=最新股东人数, f109=上期股东人数, f110=股东人数变化(%)
+                    if (int.TryParse(data["f108"]?.ToString(), out int latest))
+                        context.ShareholderCountLatest = latest;
+                    if (int.TryParse(data["f109"]?.ToString(), out int prev))
+                        context.ShareholderCountPrev = prev;
+                    if (double.TryParse(data["f110"]?.ToString(), out double change))
+                        context.ShareholderCountChange = change;
+                    context.ShareholderUpdateDate = data["f111"]?.ToString() ?? "";
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Shareholder fetch failed for {code}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取限售股解禁数据（从东方财富）
+        /// </summary>
+        private static async Task FetchUnlockDataAsync(string code, StockDeepAnalysisContext context)
+        {
+            try
+            {
+                string market = GetEastMoneyMarketPrefix(code);
+                // 东财解禁接口
+                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f114,f115,f116,f117,f118";
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
+                var jsonObj = JObject.Parse(jsonStr);
+                var data = jsonObj["data"];
+                if (data != null && data.Type != JTokenType.Null)
+                {
+                    // f114=最近解禁日期, f115=解禁股数(万股), f116=解禁占流通股本比
+                    // f117=距解禁天数, f118=解禁市值(万元)
+                    context.NearestUnlockDate = data["f114"]?.ToString() ?? "";
+                    if (double.TryParse(data["f115"]?.ToString(), out double amount))
+                        context.UnlockAmount = amount;
+                    if (double.TryParse(data["f116"]?.ToString(), out double ratio))
+                        context.UnlockRatio = ratio;
+                    if (int.TryParse(data["f117"]?.ToString(), out int days))
+                        context.DaysToUnlock = days;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Unlock fetch failed for {code}: {ex.Message}");
             }
         }
 

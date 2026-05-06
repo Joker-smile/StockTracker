@@ -2140,10 +2140,20 @@ public partial class MainWindow : Window
                 ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
             }
 
-            // === 第四步：获取回测历史表现数据 ===
-            var backtestResult = AdviceTracker.CalculateBackTestResults(60); // 最近60天
+            // === 第四步：组合优化+风控分析（含行业集中度+回撤预警） ===
+            var backtestResult = AdviceTracker.CalculateBackTestResults(60);
+            var portfolioOptimization = HighWinRateStrategies.OptimizePortfolio(
+                stockScores, marketCondition, sectors);
+            var riskMonitor = new HighWinRateStrategies.PortfolioRiskMonitor();
+            if (sectors != null && stockScores.Any(s => s.OverallScore > 0))
+            {
+                portfolioOptimization = HighWinRateStrategies.OptimizePortfolio(
+                    stockScores, marketCondition, sectors, riskMonitor);
+            }
 
-            // === 第五步：构建完整的深度分析 AI 提示词 ===
+            // === 第五步：构建完整的深度分析 AI 提示词（含组合风控） ===
+            string portfolioReport = "\n## 📊 组合优化与风控报告\n" + portfolioOptimization.OptimizationStrategy;
+
             string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
                 stockScores, 
                 marketCondition, 
@@ -2151,7 +2161,7 @@ public partial class MainWindow : Window
                 stockDataContexts, 
                 dataQualityResults, 
                 backtestResult,
-                sectors);
+                sectors) + portfolioReport;
 
             // 请求 AI 接口（Gemini / OpenAI 兼容）
             string aiResponse = await CallAiApiAsync(prompt);
@@ -2304,8 +2314,12 @@ public partial class MainWindow : Window
             ctx.Timing = HighWinRateStrategies.CalculateTimingScore(ctx, ctx.RecentPrices, ctx.RecentVolumes);
             ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
 
-            // === 第四步：构建 prompt 调用 AI ===
+            // === 第四步：组合优化+风控 ===
             var backtestResult = AdviceTracker.CalculateBackTestResults(60);
+            var portfolioOptimization = HighWinRateStrategies.OptimizePortfolio(
+                stockScores, marketCondition, sectors);
+
+            string portfolioReport = "\n## 📊 组合优化与风控报告\n" + portfolioOptimization.OptimizationStrategy;
 
             string prompt = EnhancedAiPromptBuilder.BuildCompleteAnalysisPrompt(
                 stockScores,
@@ -2314,7 +2328,7 @@ public partial class MainWindow : Window
                 stockDataContexts,
                 dataQualityResults,
                 backtestResult,
-                sectors);
+                sectors) + portfolioReport;
 
             string aiResponse = await CallAiApiAsync(prompt);
             string finalReport = $"个股分析 - {stockName}({stockCode})\n分析时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n\n{aiResponse}";
