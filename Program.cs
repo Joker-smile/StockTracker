@@ -8,7 +8,7 @@ namespace StockTracker;
 
 class Program
 {
-    public const string APP_VERSION = "v1.3.9";
+    public const string APP_VERSION = "v1.4.0";
     private static Mutex? mutex = null;
 
     [STAThread]

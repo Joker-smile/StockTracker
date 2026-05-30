@@ -260,7 +260,7 @@ namespace StockTracker
                 sb.AppendLine($"- 波动率:20日{ctx.Volatility20Day:F1}% 60日{ctx.Volatility60Day:F1}% 120日{ctx.Volatility120Day:F1}% " +
                              $"分位数{ctx.VolatilityPercentile:F0}%");
 
-                if (ctx.TechScore != null)
+                if (ctx.TechScore != null && ctx.TechScore.IsComputed)
                 {
                     sb.AppendLine("**🛠️ 高级技术指标**:");
                     sb.AppendLine($"- MACD: 值={ctx.TechScore.MACD:F3} 柱状图={ctx.TechScore.MACDHistogram:F3} " +
@@ -274,11 +274,39 @@ namespace StockTracker
                     if (!string.IsNullOrEmpty(ctx.TechScore.DivergenceDetail))
                         sb.AppendLine($"- 背离: {ctx.TechScore.DivergenceDetail}");
                     // 多周期共振
-                    if (!string.IsNullOrEmpty(ctx.TechScore.MultiTimeframeDetail))
-                        sb.AppendLine($"- 多周期: {ctx.TechScore.MultiTimeframeDetail}");
+                    string mtDetail = ctx.TechScore.MultiTimeframeDetail;
+                    List<string> missingList = new();
+                    if (ctx.TechScore60Min == null || !ctx.TechScore60Min.IsComputed)
+                        missingList.Add("60分钟");
+                    if (ctx.TechScore15Min == null || !ctx.TechScore15Min.IsComputed)
+                        missingList.Add("15分钟");
+                    
+                    if (missingList.Count > 0)
+                    {
+                        string warnSuffix = $" (⚠️ {string.Join("和", missingList)}周期数据缺失，请勿基于此做判断)";
+                        if (!string.IsNullOrEmpty(mtDetail))
+                            mtDetail += warnSuffix;
+                        else
+                            mtDetail = $"⚠️ {string.Join("和", missingList)}周期数据缺失，请勿基于此做判断";
+                    }
+                    if (!string.IsNullOrEmpty(mtDetail))
+                        sb.AppendLine($"- 多周期: {mtDetail}");
                     // 技术信号
                     if (ctx.TechScore.Signals.Count > 0)
                         sb.AppendLine($"- 信号: {string.Join(", ", ctx.TechScore.Signals.Take(5))}");
+                }
+                else
+                {
+                    sb.AppendLine("**🛠️ 高级技术指标**: ⚠️ 日线技术指标计算未完成（历史K线不足或获取失败，请勿进行技术面诊断）");
+                    List<string> missingList = new();
+                    if (ctx.TechScore60Min == null || !ctx.TechScore60Min.IsComputed)
+                        missingList.Add("60分钟");
+                    if (ctx.TechScore15Min == null || !ctx.TechScore15Min.IsComputed)
+                        missingList.Add("15分钟");
+                    if (missingList.Count > 0)
+                    {
+                        sb.AppendLine($"- 多周期: ⚠️ {string.Join("和", missingList)}周期数据缺失，请勿基于此做判断");
+                    }
                 }
 
                 if (ctx.SmartStop != null && ctx.SmartStop.DynamicStopLoss > 0)
@@ -312,13 +340,17 @@ namespace StockTracker
 
                 sb.AppendLine("**🌊 资金面(含北向+两融)**:");
                 // 北向资金
-                if (ctx.NorthBoundNetInflow != 0)
+                if (ctx.NorthBoundNetInflow != 0 || ctx.NorthBoundTotalPosition > 0 || ctx.NorthBoundPositionChange != 0)
                 {
                     string nbEmoji = ctx.NorthBoundNetInflow >= 0 ? "🟢" : "🔴";
                     string nbFlow = Math.Abs(ctx.NorthBoundNetInflow) >= 10000
                         ? $"{ctx.NorthBoundNetInflow / 10000.0:+0.00;-0.00}亿"
                         : $"{ctx.NorthBoundNetInflow:+0;-0}万";
                     sb.AppendLine($"- {nbEmoji} 北向资金净流入:{nbFlow} (持股占比{ctx.NorthBoundTotalPosition:F2}%, 变化{ctx.NorthBoundPositionChange:+0.00;-0.00}%)");
+                }
+                else
+                {
+                    sb.AppendLine("- ⚠️ 北向资金数据未获取到（可能是该股非两通标的，或接口未返回，请勿误读为资金0流入）");
                 }
                 if (ctx.MarginBalance > 0)
                 {
@@ -341,15 +373,23 @@ namespace StockTracker
                 }
 
                 // 主力资金分级展示
-                string flowEmoji = ctx.MainForceNetInflow >= 0 ? "🟢" : "🔴";
-                double absFlow = Math.Abs(ctx.MainForceNetInflow);
-                string flowStr = absFlow >= 100000000
-                    ? $"{ctx.MainForceNetInflow / 100000000.0:+0.00;-0.00}亿"
-                    : $"{ctx.MainForceNetInflow / 10000.0:+0.00;-0.00}万";
-                sb.AppendLine($"- {flowEmoji} 主力净流入:{flowStr} (占成交{ctx.MainForceInflowRatio:F1}%)");
-                // 分级资金
-                sb.AppendLine($"- 超大单:{FormatFlow(ctx.SuperLargeOrderInflow)} 大单:{FormatFlow(ctx.LargeOrderInflow)} " +
-                             $"中单:{FormatFlow(ctx.MediumOrderInflow)} 小单:{FormatFlow(ctx.SmallOrderInflow)}");
+                if (ctx.MainForceNetInflow == 0 && ctx.SuperLargeOrderInflow == 0 && ctx.LargeOrderInflow == 0 && 
+                    ctx.MediumOrderInflow == 0 && ctx.SmallOrderInflow == 0)
+                {
+                    sb.AppendLine("- ⚠️ 主力资金及分级数据未获取到（可能是非交易时段、接口限流或未开盘，请勿误读为无主力护盘或主力出货）");
+                }
+                else
+                {
+                    string flowEmoji = ctx.MainForceNetInflow >= 0 ? "🟢" : "🔴";
+                    double absFlow = Math.Abs(ctx.MainForceNetInflow);
+                    string flowStr = absFlow >= 100000000
+                        ? $"{ctx.MainForceNetInflow / 100000000.0:+0.00;-0.00}亿"
+                        : $"{ctx.MainForceNetInflow / 10000.0:+0.00;-0.00}万";
+                    sb.AppendLine($"- {flowEmoji} 主力净流入:{flowStr} (占成交{ctx.MainForceInflowRatio:F1}%)");
+                    // 分级资金
+                    sb.AppendLine($"- 超大单:{FormatFlow(ctx.SuperLargeOrderInflow)} 大单:{FormatFlow(ctx.LargeOrderInflow)} " +
+                                 $"中单:{FormatFlow(ctx.MediumOrderInflow)} 小单:{FormatFlow(ctx.SmallOrderInflow)}");
+                }
                 sb.AppendLine($"- 换手:{ctx.TurnoverRate:F1}% 成交额:{ctx.TurnoverAmount / 100000000.0:F2}亿");
                 sb.AppendLine($"- 筹码:成本{ctx.ChipAvgCost:F2}元 获利盘{ctx.ProfitRatio:F1}% " +
                              $"集中度{ctx.ChipConcentration90:F1}%");

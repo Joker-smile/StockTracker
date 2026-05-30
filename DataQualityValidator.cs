@@ -158,7 +158,7 @@ namespace StockTracker
             ref int totalFields,
             ref int validFields)
         {
-            totalFields += 8;
+            totalFields += 11; // 8原有 + 3新增(日线MACD+60分钟+15分钟)
 
             // 均线数据
             ValidateIfPositive(ctx.MA5, "MA5", result, ref validFields);
@@ -213,6 +213,40 @@ namespace StockTracker
             else
             {
                 result.MissingFields.Add("均线排列状态");
+            }
+
+            // === 新增：MACD/多周期数据有效性验证 ===
+            // 日线技术指标
+            if (ctx.TechScore != null && ctx.TechScore.IsComputed)
+            {
+                validFields++;
+            }
+            else
+            {
+                result.MissingFields.Add("日线MACD/RSI/KDJ");
+                result.Warnings.Add("日线技术指标未成功计算，K线数据可能获取失败");
+            }
+
+            // 60分钟技术指标
+            if (ctx.TechScore60Min != null && ctx.TechScore60Min.IsComputed)
+            {
+                validFields++;
+            }
+            else
+            {
+                result.MissingFields.Add("60分钟MACD");
+                result.Warnings.Add("60分钟技术指标缺失，多周期共振分析不完整");
+            }
+
+            // 15分钟技术指标
+            if (ctx.TechScore15Min != null && ctx.TechScore15Min.IsComputed)
+            {
+                validFields++;
+            }
+            else
+            {
+                result.MissingFields.Add("15分钟MACD");
+                result.Warnings.Add("15分钟技术指标缺失，多周期共振分析不完整");
             }
         }
 
@@ -327,7 +361,7 @@ namespace StockTracker
             ref int totalFields,
             ref int validFields)
         {
-            totalFields += 4;
+            totalFields += 5; // 4原有 + 1新增(北向资金)
 
             // 主力净流入
             if (ctx.MainForceNetInflow != 0)
@@ -344,6 +378,23 @@ namespace StockTracker
             else
             {
                 result.MissingFields.Add("主力净流入");
+                // 检查是否全部资金分级都为0：区分"真的为0"和"未获取到数据"
+                if (ctx.SuperLargeOrderInflow == 0 && ctx.LargeOrderInflow == 0 &&
+                    ctx.MediumOrderInflow == 0 && ctx.SmallOrderInflow == 0)
+                {
+                    result.Warnings.Add("主力资金分级数据全部为0，可能是API未返回资金流向数据（非交易时段或接口限流）");
+                }
+            }
+
+            // 北向资金
+            if (ctx.NorthBoundNetInflow != 0 || ctx.NorthBoundTotalPosition > 0)
+            {
+                validFields++;
+            }
+            else
+            {
+                result.MissingFields.Add("北向资金");
+                result.Warnings.Add("北向资金数据缺失，可能该股无北向持仓或接口未返回数据");
             }
 
             // 筹码数据

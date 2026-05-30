@@ -284,7 +284,7 @@ namespace StockTracker
         {
             var score = new TechnicalAnalysisScore();
 
-            if (prices.Count < 20) return score;
+            if (prices.Count < 20) return score; // IsComputed remains false
 
             // 基础指标
             var (rsi6, rsi12, rsi24) = CalculateRSI(prices);
@@ -333,6 +333,9 @@ namespace StockTracker
 
             // 技术信号识别
             score.Signals = IdentifyTechnicalSignals(score);
+
+            // 标记数据已成功计算（区分"未计算的零值"和"计算结果恰好为零"）
+            score.IsComputed = true;
 
             return score;
         }
@@ -527,24 +530,72 @@ namespace StockTracker
             TechnicalAnalysisScore score60Min,
             TechnicalAnalysisScore score15Min)
         {
-            // 多周期看多共振：日线+60分钟+15分钟MACD全部金叉
-            bool dailyBullish = dailyScore.MACD > dailyScore.MACDSignal && dailyScore.MACDHistogram > 0;
-            bool hourBullish = score60Min.MACD > score60Min.MACDSignal && score60Min.MACDHistogram > 0;
-            bool min15Bullish = score15Min.MACD > score15Min.MACDSignal && score15Min.MACDHistogram > 0;
+            // === 关键修复：先检查各周期数据是否已成功计算 ===
+            // 未计算的周期（IsComputed=false）不参与共振判定，避免零值被误判为死叉
+            bool dailyValid = dailyScore.IsComputed;
+            bool hourValid = score60Min.IsComputed;
+            bool min15Valid = score15Min.IsComputed;
 
-            dailyScore.IsMultiTimeframeBullish = dailyBullish && hourBullish && min15Bullish;
-            dailyScore.IsMultiTimeframeBearish = !dailyBullish && !hourBullish && !min15Bullish;
+            int validCount = (dailyValid ? 1 : 0) + (hourValid ? 1 : 0) + (min15Valid ? 1 : 0);
 
-            if (dailyScore.IsMultiTimeframeBullish)
-                dailyScore.MultiTimeframeDetail = "🟢 日线+60分钟+15分钟 MACD同步金叉，多周期共振做多";
-            else if (dailyScore.IsMultiTimeframeBearish)
-                dailyScore.MultiTimeframeDetail = "🔴 日线+60分钟+15分钟 MACD同步死叉，多周期共振做空";
-            else if (dailyBullish && !hourBullish && min15Bullish)
-                dailyScore.MultiTimeframeDetail = "🟡 日线+15分钟MACD金叉，60分钟未确认，等待60分钟信号";
-            else if (dailyBullish)
-                dailyScore.MultiTimeframeDetail = "🟢 日线MACD金叉，小周期等待确认";
+            // 数据全部不可用
+            if (validCount == 0)
+            {
+                dailyScore.IsMultiTimeframeBullish = false;
+                dailyScore.IsMultiTimeframeBearish = false;
+                dailyScore.MultiTimeframeDetail = "⚠️ 日线/60分钟/15分钟技术指标均未成功计算，无法进行多周期共振分析";
+                return;
+            }
+
+            // 仅对有效周期进行金叉/死叉判定
+            bool dailyBullish = dailyValid && dailyScore.MACD > dailyScore.MACDSignal && dailyScore.MACDHistogram > 0;
+            bool dailyBearish = dailyValid && dailyScore.MACD < dailyScore.MACDSignal && dailyScore.MACDHistogram < 0;
+            bool hourBullish = hourValid && score60Min.MACD > score60Min.MACDSignal && score60Min.MACDHistogram > 0;
+            bool hourBearish = hourValid && score60Min.MACD < score60Min.MACDSignal && score60Min.MACDHistogram < 0;
+            bool min15Bullish = min15Valid && score15Min.MACD > score15Min.MACDSignal && score15Min.MACDHistogram > 0;
+            bool min15Bearish = min15Valid && score15Min.MACD < score15Min.MACDSignal && score15Min.MACDHistogram < 0;
+
+            // 构建数据可用性说明
+            var missingPeriods = new List<string>();
+            if (!hourValid) missingPeriods.Add("60分钟");
+            if (!min15Valid) missingPeriods.Add("15分钟");
+            string missingNote = missingPeriods.Count > 0 ? $" (⚠️{string.Join("+", missingPeriods)}数据缺失)" : "";
+
+            // 多周期共振判定（仅基于有效数据）
+            if (dailyValid && hourValid && min15Valid)
+            {
+                // 三周期全部有效：完整共振判定
+                dailyScore.IsMultiTimeframeBullish = dailyBullish && hourBullish && min15Bullish;
+                dailyScore.IsMultiTimeframeBearish = dailyBearish && hourBearish && min15Bearish;
+
+                if (dailyScore.IsMultiTimeframeBullish)
+                    dailyScore.MultiTimeframeDetail = "🟢 日线+60分钟+15分钟 MACD同步金叉，多周期共振做多";
+                else if (dailyScore.IsMultiTimeframeBearish)
+                    dailyScore.MultiTimeframeDetail = "🔴 日线+60分钟+15分钟 MACD同步死叉，多周期共振做空";
+                else if (dailyBullish && !hourBullish && min15Bullish)
+                    dailyScore.MultiTimeframeDetail = "🟡 日线+15分钟MACD金叉，60分钟未确认，等待60分钟信号";
+                else if (dailyBullish)
+                    dailyScore.MultiTimeframeDetail = "🟢 日线MACD金叉，小周期等待确认";
+                else if (dailyBearish)
+                    dailyScore.MultiTimeframeDetail = "🔴 日线MACD死叉，小周期信号不一致";
+                else
+                    dailyScore.MultiTimeframeDetail = "⚪ 多周期信号不一致，趋势不明确";
+            }
             else
-                dailyScore.MultiTimeframeDetail = "⚪ 多周期信号不一致，趋势不明确";
+            {
+                // 部分周期数据缺失：降级为可用周期分析，明确标注不完整
+                dailyScore.IsMultiTimeframeBullish = false;
+                dailyScore.IsMultiTimeframeBearish = false;
+
+                if (dailyValid && dailyBullish)
+                    dailyScore.MultiTimeframeDetail = $"🟢 日线MACD金叉{missingNote}";
+                else if (dailyValid && dailyBearish)
+                    dailyScore.MultiTimeframeDetail = $"🔴 日线MACD死叉{missingNote}";
+                else if (dailyValid)
+                    dailyScore.MultiTimeframeDetail = $"⚪ 日线MACD信号中性{missingNote}";
+                else
+                    dailyScore.MultiTimeframeDetail = $"⚠️ 日线技术指标未成功计算{missingNote}";
+            }
         }
 
         /// <summary>
@@ -664,6 +715,14 @@ namespace StockTracker
 
         // 技术信号
         public List<string> Signals { get; set; } = new();
+
+        // === 数据有效性标记 ===
+        /// <summary>
+        /// 标记技术指标是否已成功计算。false表示数据从未计算（所有值为默认零值），
+        /// true表示经过ComprehensiveTechnicalAnalysis成功计算。
+        /// 用于区分"未获取到数据的零值"和"计算结果恰好为零"。
+        /// </summary>
+        public bool IsComputed { get; set; } = false;
 
         // === 新增：背离指标 ===
         public bool HasBearishDivergence { get; set; } // MACD顶背离

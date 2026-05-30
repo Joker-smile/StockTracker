@@ -78,13 +78,13 @@ public class SettingsWindow : Window
         _platformKeys["自定义平台"] = settings.CustomApiKey ?? "";
 
         _platformUrls["Gemini"] = "https://generativelanguage.googleapis.com/v1beta"; 
-        _platformUrls["DeepSeek"] = "https://api.deepseek.com/v1";
+        _platformUrls["DeepSeek"] = "https://api.deepseek.com";
         _platformUrls["阿里云百炼 (Qwen)"] = "https://dashscope.aliyuncs.com/compatible-mode/v1";
         _platformUrls["智谱 (GLM)"] = "https://open.bigmodel.cn/api/paas/v4";
         _platformUrls["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiBaseUrl ?? "") : "";
 
         _platformModels["Gemini"] = "gemini-2.5-flash,gemini-3-flash-preview,gemini-2.0-flash,gemini-1.5-flash";
-        _platformModels["DeepSeek"] = "deepseek-chat";
+        _platformModels["DeepSeek"] = "deepseek-v4-pro";
         _platformModels["阿里云百炼 (Qwen)"] = "qwen-plus,qwen-max";
         _platformModels["智谱 (GLM)"] = "glm-4-flash";
         _platformModels["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiModel ?? "") : "";

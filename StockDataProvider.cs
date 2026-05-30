@@ -476,9 +476,11 @@ namespace StockTracker
                     }
 
                     // === 多时间框架数据获取 (60分钟和15分钟) ===
+                    // 各周期独立 try-catch，避免一个失败导致全部丢失
+
+                    // --- 60分钟K线 ---
                     try
                     {
-                        // 60分钟K线
                         string url60min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=60&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
                         var resp60 = await _httpClient.GetStringAsync(url60min);
                         var obj60 = JObject.Parse(resp60);
@@ -506,14 +508,22 @@ namespace StockTracker
                             }
                             context.Prices60Min = closes60;
                             context.Volumes60Min = vols60;
-                            if (closes60.Count >= 20)
+                            if (closes60.Count >= 10) // 降低门槛：10根即可部分计算
                             {
                                 context.TechScore60Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
                                     closes60, vols60, highs60, lows60);
                             }
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"60min kline fetch failed for {code}: {ex.Message}");
+                        // TechScore60Min.IsComputed 保持 false，多周期分析会正确标注"60分钟数据缺失"
+                    }
 
-                        // 15分钟K线
+                    // --- 15分钟K线 ---
+                    try
+                    {
                         string url15min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=15&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
                         var resp15 = await _httpClient.GetStringAsync(url15min);
                         var obj15 = JObject.Parse(resp15);
@@ -541,7 +551,7 @@ namespace StockTracker
                             }
                             context.Prices15Min = closes15;
                             context.Volumes15Min = vols15;
-                            if (closes15.Count >= 20)
+                            if (closes15.Count >= 10) // 降低门槛：10根即可部分计算
                             {
                                 context.TechScore15Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
                                     closes15, vols15, highs15, lows15);
@@ -550,7 +560,8 @@ namespace StockTracker
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Multi-timeframe data fetch failed: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"15min kline fetch failed for {code}: {ex.Message}");
+                        // TechScore15Min.IsComputed 保持 false，多周期分析会正确标注"15分钟数据缺失"
                     }
                 }
             }
@@ -851,17 +862,21 @@ namespace StockTracker
                 var data = jsonObj["data"];
                 if (data != null && data.Type != JTokenType.Null)
                 {
-                    // f55 = 北向当日净买入(万元)
-                    if (double.TryParse(data["f55"]?.ToString(), out double netInflow))
+                    // f55 = 北向当日净买入(万元) — 过滤"-"等无效值
+                    var f55Str = data["f55"]?.ToString();
+                    if (!string.IsNullOrEmpty(f55Str) && f55Str != "-" && double.TryParse(f55Str, out double netInflow))
                         context.NorthBoundNetInflow = netInflow;
                     // f53 = 北向持股占流通股比例
-                    if (double.TryParse(data["f53"]?.ToString(), out double positionRatio))
+                    var f53Str = data["f53"]?.ToString();
+                    if (!string.IsNullOrEmpty(f53Str) && f53Str != "-" && double.TryParse(f53Str, out double positionRatio))
                         context.NorthBoundTotalPosition = positionRatio;
                     // f57/f58 可用于计算变化量
-                    if (double.TryParse(data["f52"]?.ToString(), out double currShares))
+                    var f52Str = data["f52"]?.ToString();
+                    if (!string.IsNullOrEmpty(f52Str) && f52Str != "-" && double.TryParse(f52Str, out double currShares))
                     {
                         // 尝试获取上一期持股量 (f54 = 上期持股)
-                        if (double.TryParse(data["f54"]?.ToString(), out double prevShares) && prevShares > 0)
+                        var f54Str = data["f54"]?.ToString();
+                        if (!string.IsNullOrEmpty(f54Str) && f54Str != "-" && double.TryParse(f54Str, out double prevShares) && prevShares > 0)
                             context.NorthBoundPositionChange = (currShares - prevShares) / prevShares * 100;
                     }
                 }

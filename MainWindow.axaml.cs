@@ -2383,7 +2383,7 @@ public partial class MainWindow : Window
         if (models.Length == 0)
         {
             return "AI 配置错误：使用 OpenAI 兼容接口时必须在【配置设置】中填写模型名称。\n" +
-                   "例如：deepseek-chat / qwen-plus / glm-4-flash";
+                   "例如：deepseek-v4-pro / qwen-plus / glm-4-flash";
         }
 
         var errorRecords = new List<string>();
@@ -2557,7 +2557,7 @@ public partial class MainWindow : Window
 
         sb.AppendLine("• 右键 → 配置设置，确认 API Key / Base URL / 模型名是否正确");
         sb.AppendLine("• Gemini：留空 Base URL，使用 generativelanguage.googleapis.com");
-        sb.AppendLine("• DeepSeek：https://api.deepseek.com/v1  模型 deepseek-chat");
+        sb.AppendLine("• DeepSeek：https://api.deepseek.com  模型 deepseek-v4-pro");
         sb.AppendLine("• 千问：https://dashscope.aliyuncs.com/compatible-mode/v1  模型 qwen-plus");
         sb.AppendLine("• GLM：https://open.bigmodel.cn/api/paas/v4  模型 glm-4-flash");
         sb.AppendLine("• 查看同目录 error_log.txt 获取详细错误信息");
