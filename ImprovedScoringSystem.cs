@@ -600,6 +600,22 @@ namespace StockTracker
             if (ctx.ShareholderCountChange > 10)
                 score -= 20;
 
+            // 重大公告/事件风险
+            if (ctx.ImportantEvents.Any(e => e.IsHighRisk))
+                score -= 25;
+            else if (ctx.ImportantEvents.Any(e => e.RiskLevel >= 40))
+                score -= 12;
+
+            // 核心量化数据缺失风险：避免在数据盲区给出强推荐
+            if (ctx.DataReliabilityScore > 0 && ctx.DataReliabilityScore < 55)
+                score -= 20;
+            if (ctx.DataPoints.Any(p =>
+                    (p.FieldName == "RecentPrices" ||
+                     p.FieldName == "TechScore" ||
+                     p.FieldName == "MainForceNetInflow") &&
+                    p.IsMissing))
+                score -= 15;
+
             return Math.Max(0, score);
         }
 
@@ -891,6 +907,15 @@ namespace StockTracker
             else if (ctx.VolatilityPercentile > 80)
                 confidence -= 5;
 
+            if (ctx.DataReliabilityScore > 0)
+            {
+                confidence = confidence * 0.75 + ctx.DataReliabilityScore * 0.25;
+                if (ctx.DataReliabilityScore < 55) confidence -= 15;
+            }
+
+            if (ctx.ImportantEvents.Any(e => e.IsHighRisk))
+                confidence -= 10;
+
             if (score.OverallScore > 80) confidence += 10;
             else if (score.OverallScore < 50) confidence -= 15;
 
@@ -944,8 +969,7 @@ namespace StockTracker
                     score.PositionSize = marketCondition == MarketCondition.Strong ? 25 : 15;
 
                 score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.97);
-                score.StopLossPrice = 0;
-                score.TargetPrice = 0;
+                ApplyDefaultTradePlan(score, ctx, 0.97m, 2.2m);
             }
             else if (score.OverallScore >= 65 && score.RiskScore >= 55 && score.ConfidenceLevel >= 50)
             {
@@ -957,8 +981,7 @@ namespace StockTracker
                     score.PositionSize = 8;
 
                 score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.94);
-                score.StopLossPrice = 0;
-                score.TargetPrice = 0;
+                ApplyDefaultTradePlan(score, ctx, 0.94m, 1.8m);
             }
             else if (ctx.TechScore?.HasBullishDivergence == true && score.OverallScore >= 55)
             {
@@ -966,12 +989,44 @@ namespace StockTracker
                 score.ActionAdvice = "底背离信号关注";
                 score.PositionSize = 3; // 极小仓位试探
                 score.SuggestedBuyPrice = (decimal)(ctx.CurrentPrice * 0.96);
+                ApplyDefaultTradePlan(score, ctx, 0.96m, 1.5m);
             }
             else
             {
                 score.ActionAdvice = "观望";
                 score.PositionSize = 0;
             }
+        }
+
+        private static void ApplyDefaultTradePlan(
+            EnhancedStockScore score,
+            StockDeepAnalysisContext ctx,
+            decimal buyDiscount,
+            decimal rewardRisk)
+        {
+            if (ctx.CurrentPrice <= 0) return;
+
+            decimal buyPrice = score.SuggestedBuyPrice > 0
+                ? score.SuggestedBuyPrice
+                : (decimal)ctx.CurrentPrice * buyDiscount;
+
+            decimal technicalStop = 0;
+            if (ctx.SmartStop?.DynamicStopLoss > 0)
+                technicalStop = ctx.SmartStop.DynamicStopLoss;
+            else if (ctx.TechScore?.SupportLevel1 > 0)
+                technicalStop = (decimal)ctx.TechScore.SupportLevel1 * 0.985m;
+            else if (ctx.MA20 > 0)
+                technicalStop = (decimal)ctx.MA20 * 0.975m;
+
+            decimal fallbackStop = buyPrice * 0.92m;
+            decimal stop = technicalStop > 0 && technicalStop < buyPrice
+                ? Math.Max(technicalStop, fallbackStop)
+                : fallbackStop;
+
+            decimal risk = Math.Max(0.01m, buyPrice - stop);
+            score.SuggestedBuyPrice = decimal.Round(buyPrice, 2);
+            score.StopLossPrice = decimal.Round(stop, 2);
+            score.TargetPrice = decimal.Round(buyPrice + risk * rewardRisk, 2);
         }
 
         private static void CollectImprovedSignals(EnhancedStockScore score, StockDeepAnalysisContext ctx)
@@ -1096,6 +1151,16 @@ namespace StockTracker
                 score.RiskSignals.Add($"🔴 股东人数暴增{ctx.ShareholderCountChange:F1}%(筹码急剧分散)");
             else if (ctx.ShareholderCountChange > 5)
                 score.RiskSignals.Add($"⚠️ 股东人数增加{ctx.ShareholderCountChange:F1}%(筹码分散)");
+
+            foreach (var ev in ctx.ImportantEvents.Where(e => e.RiskLevel >= 40).Take(3))
+            {
+                score.RiskSignals.Add($"{(ev.IsHighRisk ? "🔴" : "⚠️")} 重大公告风险({ev.RiskLevel}/100): {ev.Title}");
+            }
+
+            if (ctx.DataReliabilityScore > 0 && ctx.DataReliabilityScore < 60)
+            {
+                score.RiskSignals.Add($"⚠️ 核心数据可靠性偏低({ctx.DataReliabilityScore:F0}/100)，禁止强推荐");
+            }
 
             // 新闻风险
             if (ctx.NewsSentimentScore < 35)

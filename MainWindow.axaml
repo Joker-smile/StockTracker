@@ -19,6 +19,7 @@
             <Border Name="HeaderBar" Background="#FF282828" Height="12" Padding="2,0">
                 <Grid>
                     <TextBlock Name="TitleBlock" Text="StockTracker" Foreground="#FF666666" FontSize="8"
+                               FontFamily="{StaticResource UiFontFamily}"
                                VerticalAlignment="Center" HorizontalAlignment="Left"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="0">
                         <Button Name="BtnMin" Content="—" FontSize="7" Padding="2,0"
@@ -38,7 +39,7 @@
                 <Grid Name="StockContainer" Margin="4,1,4,4">
                     <TextBlock Name="PlaceholderText" Text="右键添加股票"
                                Foreground="#FFB0B0B0" FontSize="12"
-                               FontFamily="Courier New" Margin="0,1"/>
+                               FontFamily="{StaticResource MonoFontFamily}" Margin="0,1"/>
                 </Grid>
             </ScrollViewer>
         </StackPanel>

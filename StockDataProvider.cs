@@ -10,6 +10,28 @@ using Newtonsoft.Json.Linq;
 
 namespace StockTracker
 {
+    public class DataPointMeta
+    {
+        public string FieldName { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public string TradeDate { get; set; } = string.Empty;
+        public DateTime FetchedAt { get; set; } = DateTime.Now;
+        public bool IsMissing { get; set; }
+        public double Confidence { get; set; } = 1.0;
+        public string Note { get; set; } = string.Empty;
+    }
+
+    public class StockEventInfo
+    {
+        public string EventDate { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public int RiskLevel { get; set; }
+
+        public bool IsHighRisk => RiskLevel >= 70;
+    }
+
     public class StockDeepAnalysisContext
     {
         // 基础标识
@@ -128,6 +150,30 @@ namespace StockTracker
         public double UnlockRatio { get; set; }                        // 解禁占流通股本比例(%)
         public double UnlockAmount { get; set; }                       // 解禁股数(万股)
         public int DaysToUnlock { get; set; } = 999;                   // 距解禁天数
+
+        // === 数据可信度与事件风险 ===
+        public DateTime DataFetchedAt { get; set; } = DateTime.Now;
+        public List<DataPointMeta> DataPoints { get; set; } = new();
+        public List<StockEventInfo> ImportantEvents { get; set; } = new();
+
+        public double DataReliabilityScore
+        {
+            get
+            {
+                if (DataPoints.Count == 0) return 0;
+                string[] coreFields =
+                {
+                    "CurrentPrice", "RecentPrices", "RecentVolumes", "MA5", "MA20", "MA60",
+                    "TechScore", "Prices60Min", "Prices15Min", "MainForceNetInflow",
+                    "SuperLargeOrderInflow", "LargeOrderInflow", "TurnoverAmount"
+                };
+                var corePoints = DataPoints
+                    .Where(p => coreFields.Contains(p.FieldName))
+                    .ToList();
+                var points = corePoints.Count > 0 ? corePoints : DataPoints;
+                return points.Average(p => p.IsMissing ? 0 : Math.Max(0, Math.Min(1, p.Confidence))) * 100.0;
+            }
+        }
     }
 
     public class MarketOverviewData
@@ -153,6 +199,7 @@ namespace StockTracker
 
     public static class StockDataProvider
     {
+        private const string EastMoneyUt = "7eea3edcaed734bea9cbbc2440b282fb";
         private static readonly HttpClient _httpClient = CreateHttpClient();
         private static readonly string[] _userAgents = new[]
         {
@@ -173,6 +220,8 @@ namespace StockTracker
 
             try
             {
+                handler.AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate;
+
                 // 忽略SSL证书验证错误（仅用于开发调试）
                 handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
                 {
@@ -200,6 +249,7 @@ namespace StockTracker
             // 设置默认请求头
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
             client.DefaultRequestHeaders.Add("Accept", "*/*");
+            client.DefaultRequestHeaders.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
 
             return client;
         }
@@ -214,12 +264,13 @@ namespace StockTracker
         public static async Task<StockDeepAnalysisContext> FetchDeepDataAsync(string code, string tavilyApiKey = "")
         {
             RotateUserAgent(); // 反爬混淆
-            var context = new StockDeepAnalysisContext { Code = code };
+            var context = new StockDeepAnalysisContext { Code = code, DataFetchedAt = DateTime.Now };
             
             // 并发获取全维度数据
             var tencentTask = FetchTencentRealtimeAsync(code, context);
             var klineTask = FetchEastMoneyKlinesAsync(code, context);
             var newsTask = FetchTavilyNewsAsync(code, context, tavilyApiKey);
+            var eventsTask = FetchImportantEventsAsync(code, context);
             var flowTask = FetchMainForceFlowAsync(code, context);
             var reportTask = FetchFinancialReportAsync(code, context);
             var northTask = FetchNorthBoundFlowAsync(code, context);
@@ -227,8 +278,87 @@ namespace StockTracker
             var shareholderTask = FetchShareholderDataAsync(code, context);
             var unlockTask = FetchUnlockDataAsync(code, context);
 
-            await Task.WhenAll(tencentTask, klineTask, newsTask, flowTask, reportTask, northTask, marginTask, shareholderTask, unlockTask);
+            await Task.WhenAll(tencentTask, klineTask, newsTask, eventsTask, flowTask, reportTask, northTask, marginTask, shareholderTask, unlockTask);
             return context;
+        }
+
+        private static void MarkData(StockDeepAnalysisContext context, string fieldName, string source, bool hasValue, double confidence = 1.0, string tradeDate = "", string note = "")
+        {
+            lock (context.DataPoints)
+            {
+                context.DataPoints.RemoveAll(p => p.FieldName == fieldName && p.Source == source);
+                context.DataPoints.Add(new DataPointMeta
+                {
+                    FieldName = fieldName,
+                    Source = source,
+                    TradeDate = tradeDate,
+                    FetchedAt = DateTime.Now,
+                    IsMissing = !hasValue,
+                    Confidence = hasValue ? confidence : 0,
+                    Note = note
+                });
+            }
+        }
+
+        private static void MarkMany(StockDeepAnalysisContext context, string source, params (string Field, bool HasValue)[] fields)
+        {
+            foreach (var field in fields)
+            {
+                MarkData(context, field.Field, source, field.HasValue);
+            }
+        }
+
+        private static string WithEastMoneyUt(string url)
+        {
+            if (url.Contains("ut=", StringComparison.OrdinalIgnoreCase)) return url;
+            return url + (url.Contains('?') ? "&" : "?") + $"ut={EastMoneyUt}";
+        }
+
+        private static async Task<JObject> FetchEastMoneyJsonAsync(string url, int timeoutSeconds = 8)
+        {
+            string requestUrl = WithEastMoneyUt(url.Replace("http://", "https://", StringComparison.OrdinalIgnoreCase));
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
+            request.Headers.Referrer = new Uri("https://quote.eastmoney.com/");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json,text/plain,*/*");
+            request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache");
+            request.Headers.TryAddWithoutValidation("Pragma", "no-cache");
+
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            string raw = await response.Content.ReadAsStringAsync(cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"EastMoney HTTP {(int)response.StatusCode}: {TrimForLog(raw)}");
+            }
+
+            string trimmed = raw.Trim();
+            if (trimmed.Contains("风险警示") ||
+                trimmed.Contains("访问过于频繁") ||
+                trimmed.StartsWith("<", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"EastMoney returned non-json/risk-warning response: {TrimForLog(trimmed)}");
+            }
+
+            int firstBrace = trimmed.IndexOf('{');
+            int lastBrace = trimmed.LastIndexOf('}');
+            if (firstBrace > 0 && lastBrace > firstBrace)
+            {
+                trimmed = trimmed.Substring(firstBrace, lastBrace - firstBrace + 1);
+            }
+
+            var obj = JObject.Parse(trimmed);
+            int rc = int.TryParse(obj["rc"]?.ToString(), out var parsedRc) ? parsedRc : 0;
+            if (rc != 0)
+            {
+                throw new InvalidOperationException($"EastMoney rc={rc}: {TrimForLog(trimmed)}");
+            }
+            return obj;
+        }
+
+        private static string TrimForLog(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return text.Length <= 180 ? text : text.Substring(0, 180);
         }
 
         private static string GetPrefix(string code)
@@ -270,11 +400,25 @@ namespace StockTracker
                     context.PB = double.TryParse(parts[46], out var pb) ? pb : 0; // 市净率
                     context.VolumeRatio = double.TryParse(parts[73], out var vr) ? vr : 0; // 量比
                     context.TotalMarketValue = double.TryParse(parts[45], out var tmv) ? tmv : 0; // 总市值/亿
+                    MarkMany(context, "TencentRealtime",
+                        ("Name", !string.IsNullOrWhiteSpace(context.Name)),
+                        ("CurrentPrice", context.CurrentPrice > 0),
+                        ("PctChange", context.CurrentPrice > 0),
+                        ("TurnoverRate", context.TurnoverRate > 0),
+                        ("PE", context.PE != 0),
+                        ("PB", context.PB > 0),
+                        ("VolumeRatio", context.VolumeRatio > 0),
+                        ("TotalMarketValue", context.TotalMarketValue > 0));
+                }
+                else
+                {
+                    MarkData(context, "TencentRealtime", "TencentRealtime", false, note: "Tencent realtime response has insufficient fields");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Tencent data fetch failed: {ex.Message}");
+                MarkData(context, "TencentRealtime", "TencentRealtime", false, note: ex.Message);
             }
         }
 
@@ -285,9 +429,8 @@ namespace StockTracker
             {
                 string market = GetEastMoneyMarketPrefix(code);
                 // 近 250 个交易日的价量数据以推演均线、筹码分布、波动率锥
-                string url = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=101&fqt=1&end=20500101&lmt=250&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
-                var jsonStr = await _httpClient.GetStringAsync(url);
-                var jsonObj = JObject.Parse(jsonStr);
+                string url = $"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=250";
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 10);
 
                 var klines = jsonObj["data"]?["klines"] as JArray;
                 if (klines != null && klines.Count > 0)
@@ -350,6 +493,14 @@ namespace StockTracker
                         context.TechScore = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(closes, volumes, highs, lows);
                         context.RecentPrices = closes;
                         context.RecentVolumes = volumes;
+                        MarkMany(context, "EastMoneyDailyKline",
+                            ("RecentPrices", context.RecentPrices.Count > 0),
+                            ("RecentVolumes", context.RecentVolumes.Count > 0),
+                            ("MA5", context.MA5 > 0),
+                            ("MA20", context.MA20 > 0),
+                            ("MA60", context.MA60 > 0),
+                            ("MA120", context.MA120 > 0),
+                            ("TechScore", context.TechScore.IsComputed));
                     }
 
                     // 均线排列判断（含 MA60/MA120）
@@ -481,9 +632,8 @@ namespace StockTracker
                     // --- 60分钟K线 ---
                     try
                     {
-                        string url60min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=60&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
-                        var resp60 = await _httpClient.GetStringAsync(url60min);
-                        var obj60 = JObject.Parse(resp60);
+                        string url60min = $"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=60&fqt=1&end=20500101&lmt=100";
+                        var obj60 = await FetchEastMoneyJsonAsync(url60min, 8);
                         var klines60 = obj60["data"]?["klines"] as JArray;
                         if (klines60 != null && klines60.Count > 0)
                         {
@@ -513,20 +663,28 @@ namespace StockTracker
                                 context.TechScore60Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
                                     closes60, vols60, highs60, lows60);
                             }
+                            MarkMany(context, "EastMoney60MinKline",
+                                ("Prices60Min", context.Prices60Min.Count > 0),
+                                ("Volumes60Min", context.Volumes60Min.Count > 0),
+                                ("TechScore60Min", context.TechScore60Min.IsComputed));
+                        }
+                        else
+                        {
+                            MarkData(context, "Prices60Min", "EastMoney60MinKline", false, note: "No 60min kline returned");
                         }
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"60min kline fetch failed for {code}: {ex.Message}");
+                        MarkData(context, "Prices60Min", "EastMoney60MinKline", false, note: ex.Message);
                         // TechScore60Min.IsComputed 保持 false，多周期分析会正确标注"60分钟数据缺失"
                     }
 
                     // --- 15分钟K线 ---
                     try
                     {
-                        string url15min = $"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&klt=15&fqt=1&end=20500101&lmt=100&fields1=f1&fields2=f51,f52,f53,f54,f55,f56";
-                        var resp15 = await _httpClient.GetStringAsync(url15min);
-                        var obj15 = JObject.Parse(resp15);
+                        string url15min = $"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={market}.{code}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=15&fqt=1&end=20500101&lmt=100";
+                        var obj15 = await FetchEastMoneyJsonAsync(url15min, 8);
                         var klines15 = obj15["data"]?["klines"] as JArray;
                         if (klines15 != null && klines15.Count > 0)
                         {
@@ -556,11 +714,20 @@ namespace StockTracker
                                 context.TechScore15Min = AdvancedTechnicalIndicators.ComprehensiveTechnicalAnalysis(
                                     closes15, vols15, highs15, lows15);
                             }
+                            MarkMany(context, "EastMoney15MinKline",
+                                ("Prices15Min", context.Prices15Min.Count > 0),
+                                ("Volumes15Min", context.Volumes15Min.Count > 0),
+                                ("TechScore15Min", context.TechScore15Min.IsComputed));
+                        }
+                        else
+                        {
+                            MarkData(context, "Prices15Min", "EastMoney15MinKline", false, note: "No 15min kline returned");
                         }
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"15min kline fetch failed for {code}: {ex.Message}");
+                        MarkData(context, "Prices15Min", "EastMoney15MinKline", false, note: ex.Message);
                         // TechScore15Min.IsComputed 保持 false，多周期分析会正确标注"15分钟数据缺失"
                     }
                 }
@@ -568,6 +735,7 @@ namespace StockTracker
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"EastMoney kline/chip fetch failed: {ex.Message}");
+                MarkData(context, "EastMoneyDailyKline", "EastMoneyDailyKline", false, note: ex.Message);
             }
         }
 
@@ -636,6 +804,7 @@ namespace StockTracker
                     context.LatestNews = newsList;
                     // 新闻情绪量化评分
                     AnalyzeNewsSentiment(context, allNewsText);
+                    MarkData(context, "LatestNews", "Tavily", true, 0.9);
                 }
             }
             catch (Exception ex)
@@ -680,11 +849,95 @@ namespace StockTracker
                 context.LatestNews = newsList;
                 // 新闻情绪量化评分
                 AnalyzeNewsSentiment(context, allNewsText);
+                MarkData(context, "LatestNews", "SinaNews", newsList.Count > 0, newsList.Count > 0 ? 0.65 : 0.0);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Sina news fetch failed: {ex.Message}");
+                MarkData(context, "LatestNews", "SinaNews", false, note: ex.Message);
             }
+        }
+
+        private static async Task FetchImportantEventsAsync(string code, StockDeepAnalysisContext context)
+        {
+            try
+            {
+                string market = GetEastMoneyMarketPrefix(code);
+                string secid = $"{market}.{code}";
+                string url = $"https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=20&page_index=1&ann_type=A&client_source=web&stock_list={secid}";
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
+                var items = jsonObj["data"]?["list"] as JArray;
+                var events = new List<StockEventInfo>();
+
+                if (items != null)
+                {
+                    foreach (var item in items.Take(20))
+                    {
+                        string title = item["title"]?.ToString() ?? "";
+                        if (string.IsNullOrWhiteSpace(title)) continue;
+
+                        string date = item["notice_date"]?.ToString() ?? item["eiTime"]?.ToString() ?? "";
+                        string artCode = item["art_code"]?.ToString() ?? item["artCode"]?.ToString() ?? "";
+                        string urlLink = string.IsNullOrEmpty(artCode)
+                            ? ""
+                            : $"https://data.eastmoney.com/notices/detail/{code}/{artCode}.html";
+
+                        int risk = EstimateEventRisk(title);
+                        if (risk >= 30 || IsMaterialEvent(title))
+                        {
+                            events.Add(new StockEventInfo
+                            {
+                                EventDate = date.Length >= 10 ? date.Substring(0, 10) : date,
+                                Title = title,
+                                Source = "EastMoneyNotice",
+                                Url = urlLink,
+                                RiskLevel = risk
+                            });
+                        }
+                    }
+                }
+
+                context.ImportantEvents = events
+                    .OrderByDescending(e => e.RiskLevel)
+                    .ThenByDescending(e => e.EventDate)
+                    .Take(8)
+                    .ToList();
+                MarkData(context, "ImportantEvents", "EastMoneyNotice", true, context.ImportantEvents.Count > 0 ? 0.85 : 0.65,
+                    note: context.ImportantEvents.Count == 0 ? "No recent material notices found" : "");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Important events fetch failed for {code}: {ex.Message}");
+                MarkData(context, "ImportantEvents", "EastMoneyNotice", false, note: ex.Message);
+            }
+        }
+
+        private static int EstimateEventRisk(string title)
+        {
+            int risk = 0;
+            var highRisk = new[] { "减持", "问询", "监管", "处罚", "调查", "诉讼", "仲裁", "冻结", "质押", "担保", "退市", "ST", "亏损", "下滑", "终止", "解除", "违约", "立案" };
+            var mediumRisk = new[] { "解禁", "定增", "重组", "停牌", "商誉", "计提", "业绩预告", "业绩快报", "可转债", "限售股" };
+            var positive = new[] { "回购", "增持", "中标", "签订", "预增", "扭亏", "分红", "派息", "高送转" };
+
+            foreach (var word in highRisk)
+                if (title.Contains(word)) risk += 35;
+            foreach (var word in mediumRisk)
+                if (title.Contains(word)) risk += 20;
+            foreach (var word in positive)
+                if (title.Contains(word)) risk -= 10;
+
+            return Math.Max(0, Math.Min(100, risk));
+        }
+
+        private static bool IsMaterialEvent(string title)
+        {
+            string[] materialWords =
+            {
+                "减持", "增持", "回购", "分红", "派息", "业绩预告", "业绩快报", "定增", "重组",
+                "解禁", "限售股", "问询", "监管", "处罚", "调查", "诉讼", "仲裁", "质押",
+                "担保", "中标", "签订", "停牌", "复牌", "退市", "ST"
+            };
+            return materialWords.Any(title.Contains);
         }
 
         /// <summary>
@@ -756,36 +1009,87 @@ namespace StockTracker
             try
             {
                 string market = GetEastMoneyMarketPrefix(code);
-                // f62=主力净流入, f64=超大单净流入, f70=大单净流入, f72=中单净流入, f74=小单净流入, f66=成交额
-                string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f62,f64,f66,f70,f72,f74";
-
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
-                var data = jsonObj["data"];
+                string secid = $"{market}.{code}";
+                string url = $"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids={secid}&fields=f6,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87";
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
+                var data = jsonObj["data"]?["diff"]?.FirstOrDefault();
                 if (data != null && data.Type != JTokenType.Null)
                 {
                     if (double.TryParse(data["f62"]?.ToString(), out double inflow))
                         context.MainForceNetInflow = inflow;
-                    if (double.TryParse(data["f64"]?.ToString(), out double superLarge))
+                    if (double.TryParse(data["f66"]?.ToString(), out double superLarge))
                         context.SuperLargeOrderInflow = superLarge;
-                    if (double.TryParse(data["f70"]?.ToString(), out double large))
+                    if (double.TryParse(data["f72"]?.ToString(), out double large))
                         context.LargeOrderInflow = large;
-                    if (double.TryParse(data["f72"]?.ToString(), out double medium))
+                    if (double.TryParse(data["f78"]?.ToString(), out double medium))
                         context.MediumOrderInflow = medium;
-                    if (double.TryParse(data["f74"]?.ToString(), out double small))
+                    if (double.TryParse(data["f84"]?.ToString(), out double small))
                         context.SmallOrderInflow = small;
-                    if (double.TryParse(data["f66"]?.ToString(), out double amount))
+                    if (double.TryParse(data["f6"]?.ToString(), out double amount))
                         context.TurnoverAmount = amount;
 
                     // 计算主力净流入占成交额比例
-                    if (context.TurnoverAmount > 0)
+                    if (double.TryParse(data["f184"]?.ToString(), out double ratio))
+                        context.MainForceInflowRatio = ratio;
+                    else if (context.TurnoverAmount > 0)
                         context.MainForceInflowRatio = context.MainForceNetInflow / context.TurnoverAmount * 100;
+
+                    MarkMany(context, "EastMoneyFundFlow",
+                        ("MainForceNetInflow", context.MainForceNetInflow != 0),
+                        ("SuperLargeOrderInflow", context.SuperLargeOrderInflow != 0),
+                        ("LargeOrderInflow", context.LargeOrderInflow != 0),
+                        ("TurnoverAmount", context.TurnoverAmount > 0),
+                        ("MainForceInflowRatio", context.MainForceInflowRatio != 0));
+                }
+                else
+                {
+                    await FetchMainForceFlowFallbackAsync(code, context);
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"MainForceFlow fetch failed: {ex.Message}");
+                try
+                {
+                    await FetchMainForceFlowFallbackAsync(code, context);
+                }
+                catch (Exception fallbackEx)
+                {
+                    MarkData(context, "MainForceNetInflow", "EastMoneyFundFlow", false, note: $"{ex.Message}; fallback: {fallbackEx.Message}");
+                }
+            }
+        }
+
+        private static async Task FetchMainForceFlowFallbackAsync(string code, StockDeepAnalysisContext context)
+        {
+            string market = GetEastMoneyMarketPrefix(code);
+            string url = $"https://push2.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=1&klt=101&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&secid={market}.{code}";
+            var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
+            var line = jsonObj["data"]?["klines"]?.FirstOrDefault()?.ToString();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                MarkData(context, "MainForceNetInflow", "EastMoneyFundFlowFallback", false, note: "No fflow daykline returned");
+                return;
+            }
+
+            var parts = line.Split(',');
+            if (parts.Length >= 6)
+            {
+                context.MainForceNetInflow = double.TryParse(parts[1], out var main) ? main : 0;
+                context.SmallOrderInflow = double.TryParse(parts[2], out var small) ? small : 0;
+                context.MediumOrderInflow = double.TryParse(parts[3], out var medium) ? medium : 0;
+                context.LargeOrderInflow = double.TryParse(parts[4], out var large) ? large : 0;
+                context.SuperLargeOrderInflow = double.TryParse(parts[5], out var superLarge) ? superLarge : 0;
+                if (parts.Length > 6 && double.TryParse(parts[6], out var ratio))
+                    context.MainForceInflowRatio = ratio;
+
+                MarkMany(context, "EastMoneyFundFlowFallback",
+                    ("MainForceNetInflow", context.MainForceNetInflow != 0),
+                    ("SuperLargeOrderInflow", context.SuperLargeOrderInflow != 0),
+                    ("LargeOrderInflow", context.LargeOrderInflow != 0),
+                    ("MediumOrderInflow", context.MediumOrderInflow != 0),
+                    ("SmallOrderInflow", context.SmallOrderInflow != 0),
+                    ("MainForceInflowRatio", context.MainForceInflowRatio != 0));
             }
         }
 
@@ -798,8 +1102,7 @@ namespace StockTracker
                 string url = $"https://emweb.securities.eastmoney.com/PC_HSF10/FinanceAnalysis/ZYZBAjaxNew?type=0&code={market}{code}";
                 
                 using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 
                 var dataList = jsonObj["data"] as JArray;
                 if (dataList != null && dataList.Count > 0)
@@ -816,6 +1119,12 @@ namespace StockTracker
                         
                     if (double.TryParse(latest["MGJYXJJE"]?.ToString(), out var cfps))
                         context.OperatingCashFlowPerShare = cfps;
+
+                    MarkMany(context, "EastMoneyFinance",
+                        ("ROE", context.ROE > 0),
+                        ("OperatingRevenue", context.OperatingRevenue > 0),
+                        ("NetProfit", context.NetProfit != 0),
+                        ("OperatingCashFlowPerShare", context.OperatingCashFlowPerShare != 0));
                 }
             }
             catch (Exception ex)
@@ -827,8 +1136,7 @@ namespace StockTracker
                  {
                      string market = GetEastMoneyMarketPrefix(code);
                      string fallbackUrl = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f173";
-                     var fbStr = await _httpClient.GetStringAsync(fallbackUrl);
-                     var fbObj = JObject.Parse(fbStr);
+                     var fbObj = await FetchEastMoneyJsonAsync(fallbackUrl, 8);
                      
                      var fbData = fbObj["data"];
                      if (fbData != null && fbData.Type != JTokenType.Null)
@@ -837,11 +1145,13 @@ namespace StockTracker
                              context.ROE = fallbackRoe; 
                              
                          // 标注为降级状态，其他字段妥协留空
+                         MarkData(context, "ROE", "EastMoneyFinanceFallback", context.ROE > 0, 0.55);
                      }
                  }
                  catch (Exception fbEx)
                  {
                      System.Diagnostics.Debug.WriteLine($"Financial fallback also failed: {fbEx.Message}");
+                     MarkData(context, "FinancialReport", "EastMoneyFinance", false, note: fbEx.Message);
                  }
             }
         }
@@ -856,9 +1166,7 @@ namespace StockTracker
                 string market = GetEastMoneyMarketPrefix(code);
                 // 东财北向持股接口: f52=北向持股量(股), f53=北向持股占流通股比(%), f55=北向当日净买入(万元)
                 string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f51,f52,f53,f54,f55,f56,f57,f58";
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 var data = jsonObj["data"];
                 if (data != null && data.Type != JTokenType.Null)
                 {
@@ -879,11 +1187,21 @@ namespace StockTracker
                         if (!string.IsNullOrEmpty(f54Str) && f54Str != "-" && double.TryParse(f54Str, out double prevShares) && prevShares > 0)
                             context.NorthBoundPositionChange = (currShares - prevShares) / prevShares * 100;
                     }
+
+                    MarkMany(context, "EastMoneyNorthBound",
+                        ("NorthBoundNetInflow", context.NorthBoundNetInflow != 0),
+                        ("NorthBoundTotalPosition", context.NorthBoundTotalPosition > 0),
+                        ("NorthBoundPositionChange", context.NorthBoundPositionChange != 0));
+                }
+                else
+                {
+                    MarkData(context, "NorthBound", "EastMoneyNorthBound", false, note: "No northbound data returned");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"NorthBound fetch failed for {code}: {ex.Message}");
+                MarkData(context, "NorthBound", "EastMoneyNorthBound", false, note: ex.Message);
             }
         }
 
@@ -897,9 +1215,7 @@ namespace StockTracker
                 string market = GetEastMoneyMarketPrefix(code);
                 // 东财融资融券接口
                 string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f164,f165,f166,f167,f168,f169,f170";
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 var data = jsonObj["data"];
                 if (data != null && data.Type != JTokenType.Null)
                 {
@@ -914,11 +1230,22 @@ namespace StockTracker
                     if (double.TryParse(data["f165"]?.ToString(), out double marginBuy) &&
                         context.TurnoverAmount > 0)
                         context.MarginBuyRatio = marginBuy / context.TurnoverAmount * 100;
+
+                    MarkMany(context, "EastMoneyMargin",
+                        ("MarginBalance", context.MarginBalance > 0),
+                        ("ShortBalance", context.ShortBalance > 0),
+                        ("MarginBalanceChange", context.MarginBalanceChange != 0),
+                        ("MarginBuyRatio", context.MarginBuyRatio > 0));
+                }
+                else
+                {
+                    MarkData(context, "MarginBalance", "EastMoneyMargin", false, note: "No margin data returned");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Margin fetch failed for {code}: {ex.Message}");
+                MarkData(context, "MarginBalance", "EastMoneyMargin", false, note: ex.Message);
             }
         }
 
@@ -932,9 +1259,7 @@ namespace StockTracker
                 string market = GetEastMoneyMarketPrefix(code);
                 // 东财股东人数接口
                 string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f100,f108,f109,f110,f111";
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 var data = jsonObj["data"];
                 if (data != null && data.Type != JTokenType.Null)
                 {
@@ -946,11 +1271,21 @@ namespace StockTracker
                     if (double.TryParse(data["f110"]?.ToString(), out double change))
                         context.ShareholderCountChange = change;
                     context.ShareholderUpdateDate = data["f111"]?.ToString() ?? "";
+
+                    MarkMany(context, "EastMoneyShareholder",
+                        ("ShareholderCountLatest", context.ShareholderCountLatest > 0),
+                        ("ShareholderCountPrev", context.ShareholderCountPrev > 0),
+                        ("ShareholderCountChange", context.ShareholderCountChange != 0));
+                }
+                else
+                {
+                    MarkData(context, "ShareholderCountLatest", "EastMoneyShareholder", false, note: "No shareholder data returned");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Shareholder fetch failed for {code}: {ex.Message}");
+                MarkData(context, "ShareholderCountLatest", "EastMoneyShareholder", false, note: ex.Message);
             }
         }
 
@@ -964,9 +1299,7 @@ namespace StockTracker
                 string market = GetEastMoneyMarketPrefix(code);
                 // 东财解禁接口
                 string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f114,f115,f116,f117,f118";
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 var data = jsonObj["data"];
                 if (data != null && data.Type != JTokenType.Null)
                 {
@@ -979,11 +1312,22 @@ namespace StockTracker
                         context.UnlockRatio = ratio;
                     if (int.TryParse(data["f117"]?.ToString(), out int days))
                         context.DaysToUnlock = days;
+
+                    MarkMany(context, "EastMoneyUnlock",
+                        ("NearestUnlockDate", !string.IsNullOrWhiteSpace(context.NearestUnlockDate)),
+                        ("UnlockAmount", context.UnlockAmount > 0),
+                        ("UnlockRatio", context.UnlockRatio > 0),
+                        ("DaysToUnlock", context.DaysToUnlock < 999));
+                }
+                else
+                {
+                    MarkData(context, "NearestUnlockDate", "EastMoneyUnlock", false, note: "No unlock data returned");
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Unlock fetch failed for {code}: {ex.Message}");
+                MarkData(context, "NearestUnlockDate", "EastMoneyUnlock", false, note: ex.Message);
             }
         }
 
@@ -1002,9 +1346,7 @@ namespace StockTracker
             {
                 RotateUserAgent();
                 string url = "http://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f14&secids=1.000001,0.399001,0.399006";
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 
                 var diff = jsonObj["data"]?["diff"] as JArray;
                 if (diff != null)
@@ -1072,10 +1414,7 @@ namespace StockTracker
                 // 仅获取关键字段: f3(涨跌幅), f12(代码), f14(名称), f17(昨收), f2(现价), f6(成交额)
                 // fltt=2 参数可能会导致 clist/get 接口 502 报错或连接重置，暂时回滚此参数
                 string url = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=6000&po=1&np=1&fields=f2,f3,f12,f14,f17,f6&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23";
-                var jsonStr = await NetworkHelper.HttpGetWithRetryAsync(url, 2);
-                if (string.IsNullOrEmpty(jsonStr)) return overview;
-
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 12);
                 var diff = jsonObj["data"]?["diff"] as JArray;
 
                 double totalAmount = 0;
@@ -1120,21 +1459,17 @@ namespace StockTracker
                 try
                 {
                     string indexUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&fields=f6&fs=i:1.000001,i:0.399001";
-                    var idxStr = await NetworkHelper.HttpGetWithRetryAsync(indexUrl, 1);
-                    if (!string.IsNullOrEmpty(idxStr))
+                    var idxObj = await FetchEastMoneyJsonAsync(indexUrl, 8);
+                    var idxDiff = idxObj["data"]?["diff"] as JArray;
+                    if (idxDiff != null)
                     {
-                        var idxObj = JObject.Parse(idxStr);
-                        var idxDiff = idxObj["data"]?["diff"] as JArray;
-                        if (idxDiff != null)
+                        double exactTotalAmount = 0;
+                        foreach (var idx in idxDiff)
                         {
-                            double exactTotalAmount = 0;
-                            foreach (var idx in idxDiff)
-                            {
-                                if (double.TryParse(idx["f6"]?.ToString(), out var amt))
-                                    exactTotalAmount += amt;
-                            }
-                            overview.TotalAmount = exactTotalAmount / 100000000.0;
+                            if (double.TryParse(idx["f6"]?.ToString(), out var amt))
+                                exactTotalAmount += amt;
                         }
+                        overview.TotalAmount = exactTotalAmount / 100000000.0;
                     }
                 }
                 catch (Exception ex)
@@ -1145,22 +1480,18 @@ namespace StockTracker
 
                 // B. 获取板块排行（完整列表用于个股板块匹配）
                 string sectorUrl = "http://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fields=f3,f14&fs=m:90+t:2+f:!2";
-                var sectorStr = await NetworkHelper.HttpGetWithRetryAsync(sectorUrl, 1);
-                if (!string.IsNullOrEmpty(sectorStr))
+                var sectorObj = await FetchEastMoneyJsonAsync(sectorUrl, 8);
+                var sectorDiff = sectorObj["data"]?["diff"] as JArray;
+                if (sectorDiff != null)
                 {
-                    var sectorObj = JObject.Parse(sectorStr);
-                    var sectorDiff = sectorObj["data"]?["diff"] as JArray;
-                    if (sectorDiff != null)
+                    overview.AllSectors = sectorDiff.Select(s => new SectorRanking
                     {
-                        overview.AllSectors = sectorDiff.Select(s => new SectorRanking
-                        {
-                            Name = s["f14"]?.ToString() ?? "",
-                            ChangePct = (double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0) / 100.0
-                        }).ToList();
+                        Name = s["f14"]?.ToString() ?? "",
+                        ChangePct = (double.TryParse(s["f3"]?.ToString(), out var p) ? p : 0) / 100.0
+                    }).ToList();
 
-                        overview.TopSectors = overview.AllSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
-                        overview.BottomSectors = overview.AllSectors.OrderBy(s => s.ChangePct).Take(5).ToList();
-                    }
+                    overview.TopSectors = overview.AllSectors.OrderByDescending(s => s.ChangePct).Take(5).ToList();
+                    overview.BottomSectors = overview.AllSectors.OrderBy(s => s.ChangePct).Take(5).ToList();
                 }
 
                 // C. 获取宏观新闻（含降级方案）
@@ -1254,9 +1585,7 @@ namespace StockTracker
                 string market = GetEastMoneyMarketPrefix(code);
                 string url = $"http://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid={market}.{code}&fields=f100,f102,f104";
 
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                var jsonStr = await _httpClient.GetStringAsync(url, cts.Token);
-                var jsonObj = JObject.Parse(jsonStr);
+                var jsonObj = await FetchEastMoneyJsonAsync(url, 8);
                 var data = jsonObj["data"];
 
                 string sectorName = "";

@@ -2,7 +2,29 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="StockTracker.App"
              RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <FontFamily x:Key="UiFontFamily">Microsoft YaHei UI, Microsoft YaHei, PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, Noto Sans SC, Segoe UI, Segoe UI Emoji, Segoe UI Symbol, Arial</FontFamily>
+        <FontFamily x:Key="MonoFontFamily">Cascadia Mono, Microsoft YaHei UI, Microsoft YaHei, Noto Sans Mono CJK SC, Consolas, Menlo, monospace</FontFamily>
+    </Application.Resources>
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
+        <Style Selector="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="FontFamily" Value="{StaticResource UiFontFamily}" />
+        </Style>
     </Application.Styles>
 </Application>

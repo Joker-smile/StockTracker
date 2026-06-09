@@ -58,6 +58,11 @@ namespace StockTracker
             try
             {
                 var records = LoadRecords();
+                records.RemoveAll(r =>
+                    r.StockCode == record.StockCode &&
+                    r.AdviceDate.Date == record.AdviceDate.Date &&
+                    r.Action == record.Action &&
+                    !r.WasSuccessful.HasValue);
                 records.Add(record);
                 SaveRecords(records);
 
@@ -124,6 +129,81 @@ namespace StockTracker
             catch (Exception ex)
             {
                 Program.LogError("Update advice performance failed", ex);
+            }
+        }
+
+        public static void UpdatePendingAdvicesWithQuote(string stockCode, decimal currentPrice,
+            decimal? highestPrice = null, decimal? lowestPrice = null)
+        {
+            try
+            {
+                if (currentPrice <= 0) return;
+
+                var records = LoadRecords();
+                bool changed = false;
+                var pendingRecords = records
+                    .Where(r => r.StockCode == stockCode &&
+                                r.Action == "buy" &&
+                                !r.WasSuccessful.HasValue &&
+                                r.AdviceDate.Date < DateTime.Now.Date)
+                    .ToList();
+
+                foreach (var record in pendingRecords)
+                {
+                    record.CurrentPrice = currentPrice;
+                    record.VerifyDate = DateTime.Now;
+                    record.HoldingDays = Math.Max(1, (DateTime.Now - record.AdviceDate).Days);
+
+                    if (highestPrice.HasValue)
+                        record.ActualHighestPrice = record.ActualHighestPrice.HasValue
+                            ? Math.Max(record.ActualHighestPrice.Value, highestPrice.Value)
+                            : highestPrice.Value;
+                    if (lowestPrice.HasValue)
+                        record.ActualLowestPrice = record.ActualLowestPrice.HasValue
+                            ? Math.Min(record.ActualLowestPrice.Value, lowestPrice.Value)
+                            : lowestPrice.Value;
+
+                    if (record.RecommendedPrice <= 0) continue;
+
+                    decimal profitLoss = (currentPrice - record.RecommendedPrice) / record.RecommendedPrice * 100m;
+                    record.ActualProfitLoss = profitLoss;
+
+                    bool hitTarget = record.TargetPrice > 0 &&
+                                     (currentPrice >= record.TargetPrice ||
+                                      (record.ActualHighestPrice.HasValue && record.ActualHighestPrice.Value >= record.TargetPrice));
+                    bool hitStop = record.StopLossPrice > 0 &&
+                                   (currentPrice <= record.StopLossPrice ||
+                                    (record.ActualLowestPrice.HasValue && record.ActualLowestPrice.Value <= record.StopLossPrice));
+
+                    if (hitTarget)
+                    {
+                        record.WasSuccessful = true;
+                        record.SuccessReason = $"触及目标价{record.TargetPrice:F2}，当前盈亏{profitLoss:F2}%";
+                    }
+                    else if (hitStop)
+                    {
+                        record.WasSuccessful = false;
+                        record.SuccessReason = $"触及止损价{record.StopLossPrice:F2}，当前盈亏{profitLoss:F2}%";
+                    }
+                    else if (record.HoldingDays >= 20)
+                    {
+                        record.WasSuccessful = profitLoss > 0;
+                        record.SuccessReason = $"持有{record.HoldingDays}天，阶段盈亏{profitLoss:F2}%";
+                    }
+
+                    changed = true;
+                    LogPerformance(record);
+                }
+
+                if (changed)
+                {
+                    SaveRecords(records);
+                    UpdateBayesianWeights();
+                }
+            }
+            catch (Exception ex)
+            {
+                Program.LogError("Update pending advices failed", ex);
             }
         }
 

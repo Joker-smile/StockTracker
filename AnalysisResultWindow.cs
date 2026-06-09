@@ -65,7 +65,7 @@ public class AnalysisResultWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Background = Brush.Parse("#FF1A1A1A"),
             Foreground = Brush.Parse("#FFD0D0D0"),
-            FontFamily = new FontFamily("Courier New"),
+            FontFamily = UiFonts.Mono,
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Padding = new Thickness(12),

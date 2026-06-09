@@ -501,7 +501,7 @@ public partial class MainWindow : Window
                     Text = "⏳ 正在全网寻妖(约需15秒)...",
                     Foreground = Brush.Parse("#FFFFCC00"), // Highlighted yellow
                     FontSize = 12,
-                    FontFamily = new FontFamily("Courier New"),
+                    FontFamily = UiFonts.Mono,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 5)
@@ -1788,7 +1788,7 @@ public partial class MainWindow : Window
                         Text = text,
                         Foreground = color ?? Brushes.LightGray,
                         FontSize = 12,
-                        FontFamily = new FontFamily("Courier New"),
+                        FontFamily = UiFonts.Mono,
                         HorizontalAlignment = align,
                         VerticalAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(0, 1)
@@ -2138,6 +2138,7 @@ public partial class MainWindow : Window
                 // 计算精准择时与智能止损策略
                 ctx.Timing = HighWinRateStrategies.CalculateTimingScore(ctx, ctx.RecentPrices, ctx.RecentVolumes);
                 ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
+                RecordQuantAdvice(score, marketCondition, ctx);
             }
 
             // === 第四步：组合优化+风控分析（含行业集中度+回撤预警） ===
@@ -2214,6 +2215,53 @@ public partial class MainWindow : Window
         finally
         {
             _isAiAnalysisRunning = false;
+        }
+    }
+
+    private void RecordQuantAdvice(
+        ImprovedWinRateScoring.EnhancedStockScore score,
+        MarketCondition marketCondition,
+        StockDeepAnalysisContext ctx)
+    {
+        try
+        {
+            AdviceTracker.UpdatePendingAdvicesWithQuote(
+                score.StockCode,
+                (decimal)ctx.CurrentPrice,
+                ctx.High > 0 ? (decimal)ctx.High : null,
+                ctx.Low > 0 ? (decimal)ctx.Low : null);
+
+            var action = score.PositionSize > 0 &&
+                         (score.ActionAdvice.Contains("买入") || score.ActionAdvice.Contains("关注"))
+                ? "buy"
+                : "watch";
+
+            AdviceTracker.RecordAdvice(new AdviceTracker.AdviceRecord
+            {
+                AdviceDate = DateTime.Now,
+                StockCode = score.StockCode,
+                StockName = score.StockName,
+                Action = action,
+                RecommendedPrice = score.SuggestedBuyPrice,
+                StopLossPrice = score.StopLossPrice,
+                TargetPrice = score.TargetPrice,
+                ExpectedWinRate = score.WinProbability,
+                OverallScore = score.OverallScore,
+                TechnicalScore = score.TechnicalScore,
+                FundamentalScore = score.FundamentalScore,
+                FundFlowScore = score.FundFlowScore,
+                MarketCondition = marketCondition,
+                SentimentScore = score.SentimentScore,
+                TrendStrengthScore = score.TrendStrengthScore,
+                ValueScore = score.ValueScore,
+                SectorStrengthScore = score.SectorStrengthScore,
+                MultiTimeframeScore = score.MultiTimeframeScore,
+                DivergenceScore = score.DivergenceScore
+            });
+        }
+        catch (Exception ex)
+        {
+            Program.LogError("RecordQuantAdvice failed", ex);
         }
     }
 
@@ -2313,6 +2361,7 @@ public partial class MainWindow : Window
 
             ctx.Timing = HighWinRateStrategies.CalculateTimingScore(ctx, ctx.RecentPrices, ctx.RecentVolumes);
             ctx.SmartStop = HighWinRateStrategies.CalculateSmartStopLoss(ctx, score, ctx.RecentPrices);
+            RecordQuantAdvice(score, marketCondition, ctx);
 
             // === 第四步：组合优化+风控 ===
             var backtestResult = AdviceTracker.CalculateBackTestResults(60);

@@ -61,6 +61,9 @@ namespace StockTracker
             // === 5. 数据一致性验证 ===
             ValidateDataConsistency(ctx, result);
 
+            // === 6. 数据源可用性验证 ===
+            ValidateSourceReliability(ctx, result, ref totalFields, ref validFields);
+
             // === 6. 计算数据完整性评分 ===
             result.DataCompletenessScore = totalFields > 0 ? (validFields / (double)totalFields) * 100 : 0;
 
@@ -80,6 +83,45 @@ namespace StockTracker
             }
 
             return result;
+        }
+
+        private static void ValidateSourceReliability(
+            StockDeepAnalysisContext ctx,
+            ValidationResult result,
+            ref int totalFields,
+            ref int validFields)
+        {
+            if (ctx.DataPoints.Count == 0)
+            {
+                result.Warnings.Add("数据源元信息缺失，无法区分真实0值与接口缺失");
+                return;
+            }
+
+            var coreFields = new[] { "CurrentPrice", "RecentPrices", "TechScore", "MainForceNetInflow", "Prices60Min", "Prices15Min" };
+            foreach (var field in coreFields)
+            {
+                totalFields++;
+                var points = ctx.DataPoints.Where(p => p.FieldName == field).ToList();
+                if (points.Any(p => !p.IsMissing))
+                {
+                    validFields++;
+                }
+                else
+                {
+                    result.MissingFields.Add(field);
+                    result.Warnings.Add($"核心量化字段缺失: {field}");
+                }
+            }
+
+            foreach (var missing in ctx.DataPoints.Where(p => p.IsMissing && !string.IsNullOrWhiteSpace(p.Note)).Take(5))
+            {
+                result.Info.Add($"{missing.Source}/{missing.FieldName}: {missing.Note}");
+            }
+
+            if (ctx.DataReliabilityScore > 0 && ctx.DataReliabilityScore < 55)
+            {
+                result.Warnings.Add($"数据源可靠性偏低: {ctx.DataReliabilityScore:F0}/100");
+            }
         }
 
         /// <summary>

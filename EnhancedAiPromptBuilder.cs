@@ -34,6 +34,8 @@ namespace StockTracker
             sb.AppendLine("3. **主力vs散户**: 超大单+大单=主力，中单+小单=散户；主力买散户卖=收集，主力卖散户买=出货");
             sb.AppendLine("4. **反身性**: 当大部分散户能看懂的\"买入信号\"出现时，需考虑是否已被price in");
             sb.AppendLine("5. **风险优先**: 任何风险信号都应得到相应扣分，宁缺毋滥");
+            sb.AppendLine("6. **数据质量硬约束**: 数据完整性<60或核心量化数据缺失时，禁止给出买入/强推荐，只能输出观望或风险提示");
+            sb.AppendLine("7. **交易计划硬约束**: 任何买入/关注建议必须同时给出买入区间、止损位、目标位、失效条件；缺一项即降级为观望");
 
             // === 2. 市场环境分析 ===
             sb.AppendLine($"\n## 🌍 当前市场环境");
@@ -198,6 +200,8 @@ namespace StockTracker
                 MarketCondition.Strong => "强势 - 可积极关注",
                 _ => "不明"
             }));
+            sb.AppendLine("11. **缺失披露**: 必须列出影响结论的缺失字段，不得把接口缺失误读为资金为0、新闻为中性或无风险");
+            sb.AppendLine("12. **公告优先**: 减持、问询、处罚、诉讼、退市/ST、质押、担保、业绩预警等公告风险优先于技术信号");
 
             return sb.ToString();
         }
@@ -247,9 +251,39 @@ namespace StockTracker
                              $"资:{score.FundFlowScore:F1} 趋:{score.TrendStrengthScore:F1} 值:{score.ValueScore:F1}");
                 sb.AppendLine($"- 板块:{score.SectorStrengthScore:F1} 多周期:{score.MultiTimeframeScore:F1} 背离:{score.DivergenceScore:F1}");
                 sb.AppendLine($"- 风险分:{score.RiskScore:F1} 置信度:{score.ConfidenceLevel:F1}% 预期胜率:{score.WinProbability:F1}%");
+                sb.AppendLine($"- 操作:{score.ActionAdvice} 买入参考:{score.SuggestedBuyPrice:F2} 止损:{score.StopLossPrice:F2} 目标:{score.TargetPrice:F2} 仓位:{score.PositionSize:F1}%");
+                sb.AppendLine($"- 数据可靠性:{ctx.DataReliabilityScore:F0}/100 采集时间:{ctx.DataFetchedAt:yyyy-MM-dd HH:mm:ss}");
                 if (score.KellyFraction > 0)
                     sb.AppendLine($"- 凯利仓位:{score.KellyFraction:F1}% (满凯利:{score.KellyPosition:F1}%)");
                 sb.AppendLine("");
+
+                if (dataQualityResults.TryGetValue(score.StockCode, out var quality))
+                {
+                    sb.AppendLine("**🧪 数据质量/来源审计**:");
+                    sb.AppendLine($"- 完整性:{quality.DataCompletenessScore:F1}% 状态:{quality.GetSummary()}");
+                    if (quality.MissingFields.Count > 0)
+                        sb.AppendLine($"- 缺失字段:{string.Join(", ", quality.MissingFields.Take(12))}");
+                    if (ctx.DataPoints.Count > 0)
+                    {
+                        var missingCore = ctx.DataPoints
+                            .Where(p => p.IsMissing)
+                            .Select(p => $"{p.FieldName}({p.Source})")
+                            .Distinct()
+                            .Take(10)
+                            .ToList();
+                        var okSources = ctx.DataPoints
+                            .Where(p => !p.IsMissing)
+                            .Select(p => p.Source)
+                            .Distinct()
+                            .Take(8)
+                            .ToList();
+                        if (okSources.Count > 0)
+                            sb.AppendLine($"- 有效来源:{string.Join(", ", okSources)}");
+                        if (missingCore.Count > 0)
+                            sb.AppendLine($"- 接口缺失:{string.Join(", ", missingCore)}");
+                    }
+                    sb.AppendLine("");
+                }
 
                 sb.AppendLine("**📈 实时行情**:");
                 sb.AppendLine($"- 现价:{ctx.CurrentPrice:F2}元 (涨跌{ctx.PctChange:+0.00;-0.00}%) " +
@@ -409,6 +443,19 @@ namespace StockTracker
                     sb.AppendLine("- 无重大新闻");
                 }
                 sb.AppendLine($"- 新闻情绪:{ctx.NewsSentimentScore:F0}/100 影响力:{ctx.NewsImpactScore:F0}/100");
+                if (ctx.ImportantEvents.Count > 0)
+                {
+                    sb.AppendLine("**📌 重大公告/事件**:");
+                    foreach (var ev in ctx.ImportantEvents.Take(6))
+                    {
+                        string level = ev.RiskLevel >= 70 ? "🔴" : ev.RiskLevel >= 40 ? "🟡" : "⚪";
+                        sb.AppendLine($"- {level} {ev.EventDate} 风险{ev.RiskLevel}/100 {ev.Title}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("**📌 重大公告/事件**: 未抓取到近期重大事件；若事件接口缺失，不得视为无事件风险");
+                }
                 sb.AppendLine("");
 
                 sb.AppendLine("---");
