@@ -20,3 +20,87 @@ System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后�
    at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
    at StockTracker.MainWindow.CallAiApiAsync(String prompt)
 ----------------------------------------
+[2026-08-19 17:21:51] [AI 网络错误 [gemini-2.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP BadRequest: {
+  "error": {
+    "code": 400,
+    "message": "User location is not supported for the API use.",
+    "status": "FAILED_PRECONDITION"
+  }
+}
+
+ ---> System.Net.Http.HttpRequestException: HTTP BadRequest: {
+  "error": {
+    "code": 400,
+    "message": "User location is not supported for the API use.",
+    "status": "FAILED_PRECONDITION"
+  }
+}
+
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-08-19 17:21:52] [AI 网络错误 [gemini-3-flash-preview]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP BadRequest: {
+  "error": {
+    "code": 400,
+    "message": "User location is not supported for the API use.",
+    "status": "FAILED_PRECONDITION"
+  }
+}
+
+ ---> System.Net.Http.HttpRequestException: HTTP BadRequest: {
+  "error": {
+    "code": 400,
+    "message": "User location is not supported for the API use.",
+    "status": "FAILED_PRECONDITION"
+  }
+}
+
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-08-19 17:21:52] [AI 网络错误 [gemini-2.0-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {
+  "error": {
+    "code": 404,
+    "message": "This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash for the latest features and improvements.",
+    "status": "NOT_FOUND"
+  }
+}
+
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {
+  "error": {
+    "code": 404,
+    "message": "This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash for the latest features and improvements.",
+    "status": "NOT_FOUND"
+  }
+}
+
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-08-19 17:21:53] [AI 网络错误 [gemini-1.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {
+  "error": {
+    "code": 404,
+    "message": "models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "status": "NOT_FOUND"
+  }
+}
+
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {
+  "error": {
+    "code": 404,
+    "message": "models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "status": "NOT_FOUND"
+  }
+}
+
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
