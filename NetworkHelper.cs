@@ -89,11 +89,14 @@ namespace StockTracker
                         lastException = new HttpRequestException(
                             $"HTTP {response.StatusCode}: {responseString}");
                             
-                        // 客户端认证/余额/参数错误（非429限流）：重试无意义，直接跳出
-                        if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500 && 
-                            response.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
+                        // 客户端认证/余额/参数错误：重试无意义，直接跳出（包括429中的余额不足1113）
+                        if ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)
                         {
-                            break;
+                            if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests || 
+                                responseString.Contains("1113") || responseString.Contains("余额不足"))
+                            {
+                                break;
+                            }
                         }
                     }
                 }

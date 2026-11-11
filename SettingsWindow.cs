@@ -65,31 +65,35 @@ public class SettingsWindow : Window
             Background = Brush.Parse("#FF2D2D2D"),
             Foreground = Brushes.White,
         };
-        _platformBox.Items.Add("Gemini");
+        _platformBox.Items.Add("智谱 GLM (Coding Plan)");
+        _platformBox.Items.Add("智谱 (GLM 通用平台)");
         _platformBox.Items.Add("DeepSeek");
         _platformBox.Items.Add("阿里云百炼 (Qwen)");
-        _platformBox.Items.Add("智谱 (GLM)");
+        _platformBox.Items.Add("Gemini");
         _platformBox.Items.Add("自定义平台");
         
-        _platformKeys["Gemini"] = settings.GeminiApiKey ?? "";
+        _platformKeys["智谱 GLM (Coding Plan)"] = settings.GlmApiKey ?? "";
+        _platformKeys["智谱 (GLM 通用平台)"] = settings.GlmApiKey ?? "";
         _platformKeys["DeepSeek"] = settings.DeepSeekApiKey ?? "";
         _platformKeys["阿里云百炼 (Qwen)"] = settings.QwenApiKey ?? "";
-        _platformKeys["智谱 (GLM)"] = settings.GlmApiKey ?? "";
+        _platformKeys["Gemini"] = settings.GeminiApiKey ?? "";
         _platformKeys["自定义平台"] = settings.CustomApiKey ?? "";
 
-        _platformUrls["Gemini"] = "https://generativelanguage.googleapis.com/v1beta"; 
+        _platformUrls["智谱 GLM (Coding Plan)"] = "https://open.bigmodel.cn/api/coding/paas/v4";
+        _platformUrls["智谱 (GLM 通用平台)"] = "https://open.bigmodel.cn/api/paas/v4";
         _platformUrls["DeepSeek"] = "https://api.deepseek.com";
         _platformUrls["阿里云百炼 (Qwen)"] = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-        _platformUrls["智谱 (GLM)"] = "https://open.bigmodel.cn/api/paas/v4";
+        _platformUrls["Gemini"] = "https://generativelanguage.googleapis.com/v1beta"; 
         _platformUrls["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiBaseUrl ?? "") : "";
 
-        _platformModels["Gemini"] = "gemini-2.5-flash,gemini-3-flash-preview,gemini-2.0-flash,gemini-1.5-flash";
-        _platformModels["DeepSeek"] = "deepseek-v4-pro";
-        _platformModels["阿里云百炼 (Qwen)"] = "qwen-plus,qwen-max";
-        _platformModels["智谱 (GLM)"] = "glm-4-flash";
+        _platformModels["智谱 GLM (Coding Plan)"] = "glm-5.3,glm-5.3-flash,glm-5-turbo";
+        _platformModels["智谱 (GLM 通用平台)"] = "glm-4-flash,glm-4-plus,glm-4-air";
+        _platformModels["DeepSeek"] = "deepseek-chat,deepseek-reasoner";
+        _platformModels["阿里云百炼 (Qwen)"] = "qwen3-max,qwen-max-latest,qwen-plus-latest,qwen-turbo-latest";
+        _platformModels["Gemini"] = "gemini-2.5-flash,gemini-3.8-flash,gemini-2.5-pro";
         _platformModels["自定义平台"] = (settings.AiPlatform == "自定义平台") ? (settings.AiModel ?? "") : "";
 
-        string initPlatform = _platformBox.Items.Cast<string>().FirstOrDefault(x => x.Contains(settings.AiPlatform ?? "Gemini")) ?? "自定义平台";
+        string initPlatform = _platformBox.Items.Cast<string>().FirstOrDefault(x => x.Contains(settings.AiPlatform ?? "Coding Plan")) ?? "智谱 GLM (Coding Plan)";
         _currentPlatform = initPlatform;
         _platformBox.SelectedItem = initPlatform;
 
@@ -244,8 +248,11 @@ public class SettingsWindow : Window
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
-        string selectedPlatform = (_platformBox.SelectedItem as string) ?? "Gemini";
+        string selectedPlatform = (_platformBox.SelectedItem as string) ?? "智谱 GLM (Coding Plan)";
         _platformKeys[selectedPlatform] = (_aiApiKeyBox.Text ?? "").Trim();
+        string glmKey = _platformKeys.TryGetValue("智谱 GLM (Coding Plan)", out var gk1) && !string.IsNullOrEmpty(gk1)
+            ? gk1
+            : (_platformKeys.TryGetValue("智谱 (GLM 通用平台)", out var gk2) && !string.IsNullOrEmpty(gk2) ? gk2 : "");
         
         UpdatedSettings = new AppSettings
         {
@@ -253,10 +260,12 @@ public class SettingsWindow : Window
             GeminiApiKey = _platformKeys.TryGetValue("Gemini", out var k1) ? k1 : "",
             DeepSeekApiKey = _platformKeys.TryGetValue("DeepSeek", out var k2) ? k2 : "",
             QwenApiKey = _platformKeys.TryGetValue("阿里云百炼 (Qwen)", out var k3) ? k3 : "",
-            GlmApiKey = _platformKeys.TryGetValue("智谱 (GLM)", out var k4) ? k4 : "",
+            GlmApiKey = !string.IsNullOrEmpty(glmKey) ? glmKey : (_platformKeys.TryGetValue("智谱 (GLM)", out var gk3) ? gk3 : ""),
             CustomApiKey = _platformKeys.TryGetValue("自定义平台", out var k5) ? k5 : "",
 
-            AiBaseUrl = (_aiBaseUrlBox.Text ?? "").Trim(),
+            AiBaseUrl = (_aiBaseUrlBox.Text ?? "").Trim().EndsWith("/chat/completions", System.StringComparison.OrdinalIgnoreCase)
+                ? (_aiBaseUrlBox.Text ?? "").Trim()[..^"/chat/completions".Length].TrimEnd('/')
+                : (_aiBaseUrlBox.Text ?? "").Trim(),
             AiModel = (_aiModelBox.Text ?? "").Trim(),
             TavilyApiKey = (_tavilyKeyBox.Text ?? "").Trim(),
             

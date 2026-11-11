@@ -64,9 +64,21 @@ public class AppSettings
     public bool IsGeminiProtocol => string.IsNullOrWhiteSpace(AiBaseUrl) || AiBaseUrl.Contains("generativelanguage.googleapis.com");
 
     [JsonIgnore]
-    public string ResolvedBaseUrl => string.IsNullOrWhiteSpace(AiBaseUrl)
-        ? "https://generativelanguage.googleapis.com/v1beta"
-        : AiBaseUrl.TrimEnd('/');
+    public string ResolvedBaseUrl
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(AiBaseUrl))
+                return "https://generativelanguage.googleapis.com/v1beta";
+
+            string url = AiBaseUrl.Trim().TrimEnd('/');
+            if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+            {
+                url = url.Substring(0, url.Length - "/chat/completions".Length).TrimEnd('/');
+            }
+            return url;
+        }
+    }
 
     [JsonIgnore]
     public string[] ResolvedModels
@@ -75,9 +87,18 @@ public class AppSettings
         {
             if (!string.IsNullOrWhiteSpace(AiModel))
                 return AiModel.Split(new[] { ',', '，' }, StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim()).ToArray();
-            if (IsGeminiProtocol)
-                return new[] { "gemini-2.5-flash", "gemini-3-flash-preview", "gemini-2.0-flash", "gemini-1.5-flash" };
-            return Array.Empty<string>();
+
+            return AiPlatform switch
+            {
+                "DeepSeek" => new[] { "deepseek-chat", "deepseek-reasoner" },
+                "阿里云百炼 (Qwen)" => new[] { "qwen3-max", "qwen-max-latest", "qwen-plus-latest", "qwen-turbo-latest" },
+                var p when p.Contains("Coding Plan") || p == "智谱 (GLM)" => new[] { "glm-5.3", "glm-5.3-flash", "glm-5-turbo", "glm-4-flash" },
+                var p when p.Contains("智谱") => new[] { "glm-4-flash", "glm-4-plus", "glm-4-air" },
+                "Gemini" => new[] { "gemini-2.5-flash", "gemini-3.8-flash", "gemini-2.5-pro" },
+                _ => IsGeminiProtocol
+                    ? new[] { "gemini-2.5-flash", "gemini-3.8-flash", "gemini-2.5-pro" }
+                    : Array.Empty<string>()
+            };
         }
     }
 
@@ -87,7 +108,7 @@ public class AppSettings
         "Gemini" => GeminiApiKey ?? "",
         "DeepSeek" => DeepSeekApiKey ?? "",
         "阿里云百炼 (Qwen)" => QwenApiKey ?? "",
-        "智谱 (GLM)" => GlmApiKey ?? "",
+        var p when p.Contains("智谱") || p.Contains("GLM") => GlmApiKey ?? "",
         _ => CustomApiKey ?? ""
     };
 }

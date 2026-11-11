@@ -2432,7 +2432,7 @@ public partial class MainWindow : Window
         if (models.Length == 0)
         {
             return "AI 配置错误：使用 OpenAI 兼容接口时必须在【配置设置】中填写模型名称。\n" +
-                   "例如：deepseek-v4-pro / qwen-plus / glm-4-flash";
+                   "例如：deepseek-chat / glm-4-flash / qwen-plus";
         }
 
         var errorRecords = new List<string>();
@@ -2499,7 +2499,10 @@ public partial class MainWindow : Window
                     try
                     {
                         var root = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
-                        var text = root["choices"]?.FirstOrDefault()?["message"]?["content"]?.ToString();
+                        var msgNode = root["choices"]?.FirstOrDefault()?["message"];
+                        var text = msgNode?["content"]?.ToString();
+                        if (string.IsNullOrWhiteSpace(text))
+                            text = msgNode?["reasoning_content"]?.ToString();
                         if (!string.IsNullOrEmpty(text)) return text;
                         // 检查错误响应
                         var errMsg = root["error"]?["message"]?.ToString();

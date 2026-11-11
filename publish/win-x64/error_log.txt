@@ -104,3 +104,349 @@ System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后�
    at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
    at StockTracker.MainWindow.CallAiApiAsync(String prompt)
 ----------------------------------------
+[2026-09-11 08:44:02] [AI 网络错误 [gemini-3.8-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP ServiceUnavailable: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+ ---> System.Net.Http.HttpRequestException: HTTP ServiceUnavailable: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 08:45:17] [AI 网络错误 [gemini-3.8-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 09:00:04] [AI 网络错误 [gemini-3.8-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 09:00:18] [AI 网络错误 [gemini-2.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 09:00:18] [AI 网络错误 [gemini-3-flash-preview]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 09:00:18] [AI 网络错误 [gemini-2.0-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-09-11 09:00:19] [AI 网络错误 [gemini-1.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-08 04:55:42] [GetVolumePrediction failed for sz000560]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-08 05:55:45] [GetVolumePrediction failed for sh513520]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-08 06:55:50] [GetVolumePrediction failed for sh513310]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-08 07:25:49] [GetVolumePrediction failed for sz159980]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.InitialFillAsync(Boolean async)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-08 07:25:52] [GetVolumePrediction failed for sz159915]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-08 07:25:55] [GetVolumePrediction failed for sh513520]
+System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-09 08:27:01] [GetVolumePrediction failed for sz159980]
+System.Net.Http.HttpRequestException: The SSL connection could not be established, see inner exception.
+ ---> System.IO.IOException: Received an unexpected EOF or 0 bytes from the transport stream.
+   at System.Net.Security.SslStream.ReceiveHandshakeFrameAsync[TIOAdapter](CancellationToken cancellationToken)
+   at System.Net.Security.SslStream.ForceAuthenticationAsync[TIOAdapter](Boolean receiveFirst, Byte[] reAuthenticationData, CancellationToken cancellationToken)
+   at System.Net.Http.ConnectHelper.EstablishSslConnectionAsync(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request, Boolean async, Stream stream, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.ConnectHelper.EstablishSslConnectionAsync(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request, Boolean async, Stream stream, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.ConnectAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.CreateHttp11ConnectionAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.InjectNewHttp11ConnectionAsync(QueueItem queueItem)
+   at System.Threading.Tasks.TaskCompletionSourceWithCancellation`1.WaitWithCancellationAsync(CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.GetStringAsyncCore(HttpRequestMessage request, CancellationToken cancellationToken)
+   at StockTracker.MainWindow.GetVolumePrediction(String fullCode, String pureCode, String stockName, Double currentPrice, Double open, Double high, Double low, Double prevClose, Double currentVolShares)
+----------------------------------------
+[2026-11-09 16:13:19] [AI 网络错误 [gemini-2.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:13:19] [AI 网络错误 [gemini-3-flash-preview]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:13:20] [AI 网络错误 [gemini-2.0-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:13:21] [AI 网络错误 [gemini-1.5-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: 
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: 
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:14:06] [AI 网络错误 [glm-5.3]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP Unauthorized: {"error":{"code":"1000","message":"身份验证失败。"}}
+ ---> System.Net.Http.HttpRequestException: HTTP Unauthorized: {"error":{"code":"1000","message":"身份验证失败。"}}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:15:19] [AI 网络错误 [glm-5.3]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP Unauthorized: {"error":{"code":"1000","message":"身份验证失败。"}}
+ ---> System.Net.Http.HttpRequestException: HTTP Unauthorized: {"error":{"code":"1000","message":"身份验证失败。"}}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:22:44] [AI 网络错误 [glm-5.3]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.
+ ---> System.Threading.Tasks.TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.
+ ---> System.TimeoutException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: 由于线程退出或应用程序请求，已中止 I/O 操作。.
+ ---> System.Net.Sockets.SocketException (995): 由于线程退出或应用程序请求，已中止 I/O 操作。
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.RawConnectionStream.ReadAsync(Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.EnsureFullTlsFrameAsync[TIOAdapter](CancellationToken cancellationToken, Int32 estimatedSize)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Security.SslStream.ReadAsyncInternal[TIOAdapter](Memory`1 buffer, CancellationToken cancellationToken)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.InitialFillAsync(Boolean async)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.RedirectHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.DecompressionHandler.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   --- End of inner exception stack trace ---
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:46:02] [AI 网络错误 [glm-5.3]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {"timestamp":"2026-11-09T08:46:02.982+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {"timestamp":"2026-11-09T08:46:02.982+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:46:02] [AI 网络错误 [glm-5.3-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {"timestamp":"2026-11-09T08:46:03.145+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {"timestamp":"2026-11-09T08:46:03.145+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:46:39] [AI 网络错误 [glm-5.3]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {"timestamp":"2026-11-09T08:46:40.171+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {"timestamp":"2026-11-09T08:46:40.171+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
+[2026-11-09 16:46:39] [AI 网络错误 [glm-5.3-flash]]
+System.Net.Http.HttpRequestException: HTTP请求失败，已重试2次。最后错误: HTTP NotFound: {"timestamp":"2026-11-09T08:46:40.277+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+ ---> System.Net.Http.HttpRequestException: HTTP NotFound: {"timestamp":"2026-11-09T08:46:40.277+00:00","status":404,"error":"Not Found","path":"/v4/chat/completions/chat/completions"}
+   --- End of inner exception stack trace ---
+   at StockTracker.NetworkHelper.HttpPostWithRetryAsync(String url, String content, Int32 maxRetries, Int32 timeoutSeconds, String bearerToken)
+   at StockTracker.MainWindow.CallAiApiAsync(String prompt)
+----------------------------------------
